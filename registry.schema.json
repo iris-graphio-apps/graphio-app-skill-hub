@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/<org>/company-skills/registry.schema.json",
+  "title": "Company Skill Registry",
+  "type": "object",
+  "required": ["schemaVersion", "skills"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "skills": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/skillEntry" }
+    }
+  },
+  "$defs": {
+    "skillEntry": {
+      "type": "object",
+      "required": ["name", "description", "domain", "version", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "maxLength": 64,
+          "description": "전역 유일. lowercase-hyphen. domain 을 prefix로 시작."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 30,
+          "maxLength": 1024,
+          "description": "로더 트리거 문구. '언제 쓰는지'와 '언제 안 쓰는지'를 모두 담고, 과소트리거 방지를 위해 약간 pushy 하게."
+        },
+        "domain": {
+          "type": "string",
+          "enum": ["mobigen", "graphio", "agent", "workflow", "data"],
+          "description": "승인된 도메인 화이트리스트. 새 도메인은 이 enum 에 추가."
+        },
+        "group": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "description": "선택. 가변적이라 이름에는 넣지 않고 여기에만 둔다."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "semver."
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^skills/[a-z0-9]+(-[a-z0-9]+)*$",
+          "description": "항상 skills/<name>. 평면 구조."
+        }
+      }
+    }
+  }
+}
