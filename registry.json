@@ -32,6 +32,14 @@
       "group": "skill-tooling",
       "version": "0.1.0",
       "path": "skills/mobigen-skill-creator"
+    },
+    {
+      "name": "mobigen-skill-installer",
+      "description": "graphio app 개발 중 로컬에 없는 사내 스킬·역량이 필요할 때 반드시 로드한다. graphio-app-skill-hub 레지스트리(registry.json)를 읽어 사용자의 need 를 각 스킬 description 과 매칭하고, shallow+sparse git clone 으로 해당 skills/이름 폴더를 현재 도구의 스킬 디렉터리(.claude/skills, --user 시 ~/.claude/skills)에 설치·갱신한다. 목록/검색·install·update 를 지원. '스킬 설치', '스킬 찾아줘', '스킬 받아', 'skillhub', '레지스트리에서', '사내 스킬 없네', 'graphio 스킬 깔아', 'skill install', 'skill update', '필요한 스킬 가져와' 같은 표현에서 사용. 단, 새 스킬을 만들어 hub 에 올리는 작업은 mobigen-skill-creator 를 쓰고, 이미 설치된 스킬의 기능 자체는 그 스킬을 쓴다. 모든 설명은 한국어로, 코드/식별자는 영어 그대로.",
+      "domain": "mobigen",
+      "group": "core",
+      "version": "0.1.0",
+      "path": "skills/mobigen-skill-installer"
     }
   ]
 }
