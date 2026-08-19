@@ -26,6 +26,14 @@
       "path": "skills/graphio-subagent-dev"
     },
     {
+      "name": "korean-writing",
+      "description": "한국어로 된 문서를 만들어 낼 때는 예외 없이 켠다. 보고서, 분석 자료, 요약, 공지, 가이드, README, 회의록, 발표 원고, 메일 초안 등 종류를 가리지 않는다. 사용자에게 보여줄 한국어 문서를 새로 쓴다면 첫 문장을 쓰기 전에 이 스킬을 먼저 연다. 번역해줘, 요약해줘, 정리해줘, 초안 써줘, 문서로 만들어줘, 한국어 버전 만들어줘 같은 요청이 모두 해당한다. 번역투를 걷어내고 한국어답게 쓰는 규칙을 담고 있다.",
+      "domain": "korean",
+      "group": "writing",
+      "version": "0.1.0",
+      "path": "skills/korean-writing"
+    },
+    {
       "name": "mobigen-skill-creator",
       "description": "Mobigen company skill-hub 에 올릴 새 스킬을 만들·개선·등록할 때 반드시 로드한다. Claude 공식 skill-creator 방법론(progressive disclosure, pushy 한 description, 가벼운 테스트·반복)을 토대로, 회사 registry 스키마 규약(domain-prefix 네이밍, semver, path skills/이름, description 30–1024자·꺾쇠 금지·when-to와 when-not 포함)을 강제하고, 스캐폴드→작성→description 린트→registry.json 엔트리 생성·검증까지 한 흐름으로 안내한다. '스킬 만들어', 'skill 만들기', '스킬 등록', 'skill-hub', 'registry 엔트리', 'mobigen-skill-creator', '새 스킬 스캐폴드', 'description 최적화', '스킬 검증' 같은 표현에서 사용. 단, 기존 graphio 앱/노드 자체를 만드는 작업은 graphio-app-dev 나 graphio-subagent-dev 를 대신 쓴다. 모든 설명은 한국어로, 코드/식별자는 영어 그대로.",
       "domain": "mobigen",
