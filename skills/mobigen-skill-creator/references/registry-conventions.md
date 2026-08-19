@@ -21,7 +21,7 @@ company-skills/
 |---|---|---|---|
 | `name` | O | 전역 유일. lowercase-hyphen(`^[a-z0-9]+(-[a-z0-9]+)*$`), ≤64. **domain 을 prefix 로 시작.** | `graphio-app-test` |
 | `description` | O | 30–1024자. 트리거 문구 — **언제 쓰는지 + 언제 안 쓰는지** 모두, 약간 pushy. **꺾쇠 `< >` 금지.** | (아래 예 참고) |
-| `domain` | O | enum: `mobigen` / `graphio` / `agent` / `workflow` / `data`. 새 도메인은 스키마 enum 에 추가. | `graphio` |
+| `domain` | O | enum: `mobigen` / `graphio` / `agent` / `workflow` / `data` / `korean`. 새 도메인은 스키마 enum 에 추가. | `graphio` |
 | `group` | — | 선택. lowercase-hyphen. **가변적이라 name 엔 넣지 않고 여기에만.** | `app-framework` |
 | `version` | O | semver `MAJOR.MINOR.PATCH`. | `0.1.0` |
 | `path` | O | 항상 `skills/<name>`. | `skills/graphio-app-test` |
