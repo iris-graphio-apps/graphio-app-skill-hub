@@ -1,9 +1,9 @@
 ---
-name: graphio-ontology-builder
+name: graphio-ontology-converter
 description: 온톨로지 정의를 적은 문서를 Graphio 온톨로지 정의 파일(graphio JSON)로 옮길 때 반드시 로드한다. 정해진 Markdown 서식(Object Type·Link Type·Meta Type·Object Mapping 네 절)을 build_graphio_json.py 가 읽어 objectTypes·linkTypes·metaTypes·objectMapping 4블록 파일을 쓰고, validate_graphio_json.py 로 규격을 확인한 뒤 한국어 리포트와 함께 넘긴다. 문서에 있는 것만 옮기고 문서에 없는 개념·속성·관계를 만들지 않으며, 문서가 잇지 않은 개념을 잇지 않고, 어긋난 자리는 고치지 않고 몇 줄인지 짚어 문서 작성자에게 알린다. 서식이 아닌 문서를 받으면 서식을 건네거나, 문서에 적힌 것만 옮기고 빈 칸은 빈 칸으로 남긴 서식 초안을 만든다. '온톨로지 만들어', '온톨로지 정의', '이 문서로 온톨로지', 'Object Type', 'Link Type', 'Object Mapping', 'graphio JSON', 'Title Key', 'GOS61006' 같은 표현·코드에서 사용. 온톨로지라고 말하지 않고 '개념 모델 뽑아줘', '이 정의서로 그래프 스키마 만들어줘' 라고 해도 같이 쓴다. 단, 만든 파일을 운영 환경에 반입·반출하는 작업은 별도 Export 스킬을, graphio 앱·노드 개발은 graphio-app-dev·graphio-subagent-dev 를 대신 쓴다. 모든 설명은 한국어로, 코드/식별자는 영어 그대로.
 ---
 
-# graphio-ontology-builder
+# graphio-ontology-converter
 
 온톨로지 정의를 적은 문서를 **Graphio 에 반입할 수 있는 정의 파일**로 옮긴다. 산출물은 파일 두 개다 — 4블록 graphio JSON 하나, 무엇이 어디로 갔고 무엇이 남았는지 적은 한국어 리포트 하나.
 

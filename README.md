@@ -22,7 +22,7 @@ langgraph 기반 **graphio-app-framework** 개발에 필요한 Claude 스킬을 
 | graphio-subagent-dev | graphio | app-framework | 재사용 service node(ServiceNode 계약) 저작·등록 |
 | graphio-app-test | graphio | app-framework | graphio app 로컬 테스트 (Test UI / curl) |
 | **korean-writing** | korean | writing | 한국어 문서를 새로 쓸 때 번역투를 걷어내는 규칙 (교정은 파일 지정 호출) |
-| graphio-ontology-builder | graphio | ontology | 온톨로지 정의 서식(.md)을 graphio JSON 으로 옮기고 규격을 검증 |
+| graphio-ontology-converter | graphio | ontology | 온톨로지 정의 서식(.md)을 graphio JSON 으로 옮기고 규격을 검증 |
 
 ## 스킬 사용하기 (설치)
 
