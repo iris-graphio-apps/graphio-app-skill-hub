@@ -170,6 +170,8 @@ python3 scripts/validate_graphio_json.py 정의-ontology.json
 | 서식의 절·칸·별칭, 무엇을 알리나, 규격이 담지 못하는 것, 서식 밖 문서 처리 | [`references/document-format.md`](references/document-format.md) |
 | 필드별 제약·데이터 타입 7종·JSON Schema·교차 규칙·`GOS` 코드표·전체 예시 | [`references/graphio-json-spec.md`](references/graphio-json-spec.md) |
 | 작성자에게 건네는 빈 서식 | [`assets/온톨로지-정의-서식.md`](assets/온톨로지-정의-서식.md) |
+| 칸마다 무엇을 적을 수 있는지 — 작성자에게 함께 건넨다 | [`assets/서식-작성-가이드.md`](assets/서식-작성-가이드.md) |
+| 서로 다른 꼴로 적은 예시 5개 — 베껴 쓰라고 건넨다 | [`assets/예시/`](assets/예시/) |
 | 서식 → JSON 옮기기 | [`scripts/build_graphio_json.py`](scripts/build_graphio_json.py) |
 | 규격 검증 | [`scripts/validate_graphio_json.py`](scripts/validate_graphio_json.py) |
 
