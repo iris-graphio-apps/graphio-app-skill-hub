@@ -20,6 +20,9 @@ STRANDED = re.compile(r"^(\[|FK\s*JOIN|SQL\s*:)")
 # 표에서 "그렇다"로 읽는 값. 가이드마다 표기가 달라 흔한 것을 모아 둔다.
 TRUE_VALS = ("O", "예", "Y", "YES", "TRUE", "V", "✓", "✔", "○", "●")
 JOSA = re.compile(r"[가-힣]\s*(이\(가\)|은\(는\)|을\(를\)|과\(와\)|와\(과\))")
+# 서식 네 절의 제목. 제목은 공백·하이픈·밑줄·가운뎃점·마침표를 지우고 소문자로 맞춰 읽는다.
+FOUR_SECTIONS = {"objecttype", "오브젝트타입", "linktype", "링크타입",
+                 "metatype", "메타타입", "objectmapping", "오브젝트매핑"}
 
 
 def read_blocks(lines):
@@ -128,7 +131,20 @@ def title_count(block):
     return n
 
 
-def collect_stats(lines, blocks, text):
+def four_sections(lines):
+    """서식 네 절 안의 줄만 이어 붙인다. 규모 표나 서식 밖 절은 뺀다."""
+    out, inside = [], False
+    for raw in lines:
+        m = re.match(r"^##\s+(?!#)(.+?)\s*$", raw)
+        if m:
+            inside = re.sub(r"[\s_.\-·]", "", m.group(1)).lower() in FOUR_SECTIONS
+            continue
+        if inside:
+            out.append(raw)
+    return "\n".join(out)
+
+
+def collect_stats(lines, blocks):
     """사람이 한눈에 볼 통계를 모은다."""
     _, link_rows = section_items(lines, {"linktype", "링크타입"})
     map_titles, map_rows = section_items(lines, {"objectmapping", "오브젝트매핑"})
@@ -176,7 +192,8 @@ def collect_stats(lines, blocks, text):
         "대표 표시 속성이 1개가 아닌 개념": title_bad,
         "데이터가 붙지 않은 개념": len(unmapped),
         "미확정 개념": ", ".join(unmapped) if unmapped else "없음",
-        "확인 필요가 남은 자리": len(re.findall(r"확인\s*필요", text)),
+        # 네 절 안만 센다. 규모 표나 서식 밖 절이 "확인 필요"를 말해도 남은 자리가 아니다.
+        "확인 필요가 남은 자리": len(re.findall(r"확인\s*필요", four_sections(lines))),
         "자료형": " · ".join("%s %d" % (k, v) for k, v in sorted(types.items(), key=lambda x: -x[1])),
     }
 
@@ -220,7 +237,7 @@ def main():
         print("Object Type 절에서 개념을 찾지 못했다. 절 제목을 확인한다.")
         return 2
 
-    st = collect_stats(lines, blocks, text)
+    st = collect_stats(lines, blocks)
     if args.stats:
         print_stats(st, as_markdown=True)
         return 0
