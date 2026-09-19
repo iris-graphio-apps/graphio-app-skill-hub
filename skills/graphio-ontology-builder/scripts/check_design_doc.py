@@ -8,14 +8,14 @@
 
 경고 기호가 가이드마다 다르므로 필요하면 지정한다.
 
-    python3 check_design_doc.py <문서.md> --warn-mark ◈
+    python3 check_design_doc.py <문서.md> --warn-mark ※
 """
 import argparse
 import re
 import sys
 
 # 설명 줄이 잘렸는지 알아보는 표지. 대괄호로 시작하는 줄은 대개
-# [SQL]·[별칭]·[원천] 같은 구획 표지라 설명 줄에 붙어 있어야 한다.
+# [SQL]·[별칭]·[출처] 같은 구획 표지라 설명 줄에 붙어 있어야 한다.
 STRANDED = re.compile(r"^(\[|FK\s*JOIN|SQL\s*:)")
 # 표에서 "그렇다"로 읽는 값. 가이드마다 표기가 달라 흔한 것을 모아 둔다.
 TRUE_VALS = ("O", "예", "Y", "YES", "TRUE", "V", "✓", "✔", "○", "●")

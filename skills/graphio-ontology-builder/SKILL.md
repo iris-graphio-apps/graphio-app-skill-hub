@@ -162,7 +162,7 @@ CQ 는 사용자가 자리를 정해 주고, 두 가이드는 스킬 기본이�
   용어 자료           docs/용어집.md
                      업무에서 쓰는 말과 뜻을 풀어 두었고, 같은 대상을 달리 부르는 말을 모아 두었다 (3장 단서)
   정형 원천           docs/테이블-명세.md
-                     테이블과 컬럼 목록이 있고, 테이블끼리 무엇으로 이어지는지 적었다 (4장 단서)
+                     테이블과 컬럼 목록이 있고, 테이블을 어느 컬럼으로 잇는지 적었다 (4장 단서)
   업무 범위 · 용어 자료  docs/업무-소개.md
                      무엇을 하려는 일인지와 다루지 않는 범위를 적었다 (6장 단서)
                      말과 뜻을 풀어 둔 표가 함께 있다 (3장 단서)
@@ -430,7 +430,7 @@ python3 scripts/check_design_doc.py <온톨로지-정의.md> --stats
 가이드가 정한 경고 기호가 `⚠` 가 아니면 알려 준다. 모르고 돌리면 경고문을 못 찾아 그냥 지나간다.
 
 ```bash
-python3 scripts/check_design_doc.py <온톨로지-정의.md> --warn-mark ◈
+python3 scripts/check_design_doc.py <온톨로지-정의.md> --warn-mark ※
 ```
 
 **그다음 자매 스킬의 스크립트로 서식을 확인한다.** 자매 스킬은 이 스킬 폴더와 나란히 있다. `<converter>` 를 실제로 있는 자리로 바꿔 쓴다 — `../graphio-ontology-converter`, `.claude/skills/graphio-ontology-converter`, `~/.claude/skills/graphio-ontology-converter`, hub 저장소면 `skills/graphio-ontology-converter` 다.
