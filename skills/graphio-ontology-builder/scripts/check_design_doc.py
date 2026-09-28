@@ -11,6 +11,7 @@
     python3 check_design_doc.py <문서.md> --warn-mark ※
 """
 import argparse
+import json
 import re
 import sys
 
@@ -189,24 +190,37 @@ def collect_stats(lines, blocks):
         "매핑": len(map_titles),
         "매핑 줄": map_rows,
         "식별 속성이 있는 개념": "%d / %d" % (pk_ok, len(blocks)),
-        "대표 표시 속성이 1개가 아닌 개념": title_bad,
+        "대표 표시 속성이 1건이 아닌 개념": title_bad,
         "데이터가 붙지 않은 개념": len(unmapped),
         "미확정 개념": ", ".join(unmapped) if unmapped else "없음",
-        # 네 절 안만 센다. 규모 표나 서식 밖 절이 "확인 필요"를 말해도 남은 자리가 아니다.
-        "확인 필요가 남은 자리": len(re.findall(r"확인\s*필요", four_sections(lines))),
+        # 네 절 안만 센다. 규모 표나 서식 밖 절이 "확인 필요"를 말해도 남은 표기가 아니다.
+        "확인 필요 표기": len(re.findall(r"확인\s*필요", four_sections(lines))),
         "자료형": " · ".join("%s %d" % (k, v) for k, v in sorted(types.items(), key=lambda x: -x[1])),
     }
 
 
+def report_value(key, value):
+    """통계 값을 리포트 표기로 바꾼다. JSON 으로 내는 값은 숫자 그대로 둔다."""
+    if isinstance(value, int):
+        return "%d건" % value
+    m = re.fullmatch(r"(\d+) / (\d+)", str(value))
+    if m:
+        return "%s건 중 %s건" % (m.group(2), m.group(1))
+    if key == "자료형":
+        return re.sub(r"(\S+) (\d+)", r"\1 \2건", str(value)) or "해당 없음"
+    return value
+
+
 def print_stats(st, as_markdown):
     keys = ["개념", "속성", "관계", "데이터 구조", "매핑",
-            "식별 속성이 있는 개념", "대표 표시 속성이 1개가 아닌 개념",
-            "데이터가 붙지 않은 개념", "확인 필요가 남은 자리", "자료형"]
+            "식별 속성이 있는 개념", "대표 표시 속성이 1건이 아닌 개념",
+            "데이터가 붙지 않은 개념", "확인 필요 표기", "자료형"]
     if as_markdown:
+        # 리포트에 그대로 붙는 표다. 리포트 작성 규칙대로 단위는 '건', 비율은 'n건 중 n건' 꼴로 낸다.
         print("| 항목 | 값 |")
         print("|---|---|")
         for k in keys:
-            print("| %s | %s |" % (k, st[k]))
+            print("| %s | %s |" % (k, report_value(k, st[k])))
         if st["데이터가 붙지 않은 개념"]:
             print("| 데이터가 붙지 않은 개념 목록 | %s |" % st["미확정 개념"])
     else:
@@ -222,6 +236,8 @@ def main():
                     help="원천 구조 문서. 주면 데이터 구조 이름이 거기 있는지 대조한다")
     ap.add_argument("--stats", action="store_true",
                     help="통계를 Markdown 표로만 출력한다. 문서에 그대로 붙여 넣는다")
+    ap.add_argument("--json", action="store_true",
+                    help="검사 결과와 통계를 JSON 으로 낸다. 판정 스크립트가 읽는다")
     args = ap.parse_args()
 
     text = open(args.path, encoding="utf-8").read()
@@ -230,11 +246,18 @@ def main():
 
     findings = []
 
-    def add(kind, where, what, how):
-        findings.append((kind, where, what, how))
+    def add(kind, where, what, how, tag=""):
+        # tag 는 판정 스크립트가 따로 세는 종류다. 대표 표시 속성은 치명 구분이 달라 표시한다.
+        findings.append((kind, where, what, how, tag))
 
     if not blocks:
-        print("Object Type 절에서 개념을 찾지 못했다. 절 제목을 확인한다.")
+        if args.json:
+            json.dump({"읽힘": False,
+                       "까닭": "Object Type 절에서 개념을 찾지 못함"},
+                      sys.stdout, ensure_ascii=False)
+            print()
+        else:
+            print("Object Type 절에서 개념을 찾지 못했다. 절 제목을 확인한다.")
         return 2
 
     st = collect_stats(lines, blocks)
@@ -247,21 +270,21 @@ def main():
         for ln, s in b["after"]:
             if STRANDED.match(s):
                 add("오류", "%d줄" % ln,
-                    "설명 줄에서 떨어져 나왔다: %s" % s[:50],
-                    "앞의 `- 설명:` 줄 끝에 이어 붙인다. 그대로 두면 변환할 때 사라진다.")
+                    "설명 줄에서 분리된 줄: %s. 변환 시 누락됨" % s[:50],
+                    "앞 `- 설명:` 줄 끝에 이어 붙임")
 
     # 2) 설명이 아예 없는 개념
     for b in blocks:
         if not b["desc"]:
-            add("경고", "%d줄 (### %s)" % (b["line"], b["name"]),
-                "설명이 없다", "설명은 그대로 임베딩되어 검색에 쓰인다. 가이드의 형식대로 적는다.")
+            add("경고", "%d줄(%s)" % (b["line"], b["name"]),
+                "설명 없음. 설명은 임베딩되어 검색에 사용됨", "가이드 형식에 따라 설명 작성")
 
     # 3) 템플릿의 조사 괄호가 그대로 남았다
     for i, line in enumerate(lines):
         if JOSA.search(line):
             add("오류", "%d줄" % (i + 1),
-                "조사 괄호가 남았다: %s" % JOSA.search(line).group(0),
-                "앞말에 받침이 있으면 이/은/을/과, 없으면 가/는/를/와 로 하나만 남긴다.")
+                "조사 괄호 잔존: %s" % JOSA.search(line).group(0),
+                "앞말 받침 유무에 맞는 조사 하나만 남김(받침 있음: 이/은/을/과, 없음: 가/는/를/와)")
 
     # 4) 경고문이 한쪽에만 있다
     #    경고문의 핵심은 "A 가 아니라 B 를 써야 한다" 이므로 그 자리에서 상대를 뽑는다.
@@ -289,16 +312,15 @@ def main():
     for src, targets in points_to.items():
         for tgt in targets:
             if src not in points_to.get(tgt, set()):
-                add("경고", "### %s" % tgt,
-                    "%s 의 경고가 %s 를 가리키는데, %s 쪽에는 %s 를 가리키는 경고가 없다"
+                add("경고", "개념 '%s'" % tgt,
+                    "경고문 단방향: %s → %s 경고는 있으나 %s → %s 경고 없음. 반대 방향 질의에서 오답 발생"
                     % (src, tgt, tgt, src),
-                    "반대 방향 질의에서 그대로 틀린다. %s 설명에도 경고를 넣거나, "
-                    "넣지 않은 근거를 리포트에 적는다." % tgt)
+                    "%s 설명에 경고 추가 또는 미추가 근거를 설계 리포트에 기재" % tgt)
 
     for n in unreadable:
-        add("경고", "### %s" % n,
-            "경고 기호는 있는데 어느 개념을 가리키는지 읽어내지 못했다",
-            "상대 개념 이름이 들어갔는지 확인한다. 가이드의 경고문 형식과 다르면 넘겨도 된다.")
+        add("경고", "개념 '%s'" % n,
+            "경고 기호는 있으나 가리키는 개념 식별 불가. 가이드 경고문 형식과 다르게 작성된 경우일 수 있음",
+            "경고문에 상대 개념 이름 포함 여부 확인")
 
     # 5) 대상 환경에 아직 없는 데이터 구조를 짚는다
     #    문서 타입과 전처리 산출물은 여기 나오는 것이 정상이다. 오류가 아니라
@@ -308,10 +330,10 @@ def main():
     for name, ln, desc in meta_types(lines):
         if ABSENT.search(desc):
             absent_names.append(name)
-            add("확인", "%d줄 (### %s)" % (ln, name),
-                "대상 환경에 아직 없다고 적혀 있다",
-                "반입 전에 만들어야 한다. 리포트의 「추가로 필요한 메타타입」 절에 "
-                "어느 개념이 쓰고 어떻게 만들고 누가 하는지 적혔는지 본다. 검증기는 GOS61014 로 짚지만 누가 할지는 말해 주지 않는다.")
+            add("확인", "%d줄(%s)" % (ln, name),
+                "대상 환경에 미생성된 데이터 구조. 반입 전 생성 필요",
+                "설계 리포트 7.1절(신규 메타타입)에 사용 개념·생성 방법·조치 주체 기재 여부 확인. "
+                "규격 검사는 GOS61014로 지적하나 조치 주체는 알려 주지 않음")
 
     # 6) 원천 문서를 받았으면 데이터 구조 이름이 거기 있는지 대조한다
     #    원천에 없는 이름 자체는 잘못이 아니다 — 문서 타입은 여기서 처음 정해진다.
@@ -325,10 +347,10 @@ def main():
                 print("원천 문서를 읽지 못했다: %s (%s)" % (p, e), file=sys.stderr)
         for name, ln, desc in meta_types(lines):
             if name not in src and name not in absent_names:
-                add("경고", "%d줄 (### %s)" % (ln, name),
-                    "원천 문서에 없는 이름인데 어디서 왔는지 적혀 있지 않다",
-                    "문서 타입이나 전처리로 새로 생기는 구조라면 설명에 그렇게 적는다. "
-                    "원천에 있는 이름을 잘못 옮긴 것이라면 이름을 맞춘다.")
+                add("경고", "%d줄(%s)" % (ln, name),
+                    "원천 문서에 없는 이름이며 출처 기재 없음",
+                    "문서 타입·전처리로 새로 생기는 구조이면 설명에 기재. "
+                    "원천 이름을 잘못 옮긴 경우 원천 이름으로 정정")
 
     # 7-1) 대표 표시 속성이 정확히 1개가 아니다
     #      통계로만 세면 아무도 보지 않는다. 0개면 무엇으로 보여 줄지 정해지지 않고,
@@ -337,10 +359,9 @@ def main():
         n = title_count(b)
         if n is None or n == 1:
             continue
-        add("오류", "%d줄 (### %s)" % (b["line"], b["name"]),
-            "대표 표시 속성이 %d개다" % n,
-            "개념마다 정확히 1개여야 한다. 서식 가이드의 대표 표시 속성 대목을 펴고 "
-            "하나만 표시한다. 0개면 무엇으로 보여 줄지 정해지지 않고, 2개 이상이면 반입이 막힌다.")
+        add("오류", "%d줄(%s)" % (b["line"], b["name"]),
+            "대표 표시 속성 %d건. 개념마다 1건이어야 하며 0건이면 표시값 미정, 2건 이상이면 반입 불가" % n,
+            "서식 가이드의 대표 표시 속성 규칙에 따라 1건만 지정", tag="대표 표시 속성")
 
     # 7) 표 안에 세로줄이 새어 칸 수가 어긋났다
     for b in blocks:
@@ -350,13 +371,21 @@ def main():
         for ln, row in b["rows"][1:]:
             if len(row.strip("|").split("|")) != ncol:
                 add("오류", "%d줄" % ln,
-                    "표의 칸 수가 머리글과 다르다",
-                    "설명 안의 세로줄이 칸을 쪼갠 것이다. 쉼표나 가운뎃점으로 바꾼다.")
+                    "표의 칸 수가 머리글과 다름. 설명 안의 세로줄이 칸을 분할함",
+                    "설명 안 세로줄을 쉼표나 가운뎃점으로 변경")
 
     # ---- 보고
     errors = [f for f in findings if f[0] == "오류"]
     warns = [f for f in findings if f[0] == "경고"]
     notes = [f for f in findings if f[0] == "확인"]
+
+    if args.json:
+        json.dump({"읽힘": True, "통계": st,
+                   "걸린 것": [{"등급": k, "자리": w, "무엇": t, "어떻게": h, "종류": g}
+                             for k, w, t, h, g in findings]},
+                  sys.stdout, ensure_ascii=False)
+        print()
+        return 1 if errors else 0
 
     print("검사 대상: %s   (경고 기호 %s)\n" % (args.path, mark))
     print_stats(st, as_markdown=False)
@@ -366,7 +395,7 @@ def main():
         if not group:
             continue
         print("%s %d건" % (kind, len(group)))
-        for _, where, what, how in group:
+        for _, where, what, how, _ in group:
             print("  %s  %s" % (where, what))
             print("      → %s" % how)
         print()
