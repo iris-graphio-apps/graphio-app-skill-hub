@@ -32,7 +32,7 @@
         },
         "domain": {
           "type": "string",
-          "enum": ["mobigen", "graphio", "agent", "workflow", "data"],
+          "enum": ["mobigen", "graphio", "agent", "workflow", "data", "korean"],
           "description": "승인된 도메인 화이트리스트. 새 도메인은 이 enum 에 추가."
         },
         "group": {

@@ -21,6 +21,9 @@ langgraph 기반 **graphio-app-framework** 개발에 필요한 Claude 스킬을 
 | graphio-app-dev | graphio | app-framework | graphio app 개발·구조·포털 업로드 패키징 |
 | graphio-subagent-dev | graphio | app-framework | 재사용 service node(ServiceNode 계약) 저작·등록 |
 | graphio-app-test | graphio | app-framework | graphio app 로컬 테스트 (Test UI / curl) |
+| **korean-writing** | korean | writing | 한국어 문서를 새로 쓸 때 번역투를 걷어내는 규칙 (교정은 파일 지정 호출) |
+| graphio-ontology-builder | graphio | ontology | 업무 문서(검증질문·참고 문서·두 가이드)를 읽어 온톨로지를 설계하고 정의 서식(.md)으로 정리 |
+| graphio-ontology-converter | graphio | ontology | 온톨로지 정의 서식(.md)을 graphio 온톨로지 JSON 으로 옮기고 규격을 검증 |
 
 ## 스킬 사용하기 (설치)
 
@@ -63,7 +66,7 @@ python3 $S/validate_registry.py registry.json               # 전체 재검증
 
 ## 레지스트리 규약 (요약)
 
-- `name`: 전역 유일, lowercase-hyphen, ≤64, **domain prefix 로 시작** (`mobigen` / `graphio` / `agent` / `workflow` / `data`)
+- `name`: 전역 유일, lowercase-hyphen, ≤64, **domain prefix 로 시작** (`mobigen` / `graphio` / `agent` / `workflow` / `data` / `korean`)
 - `description`: 30–1024자, 꺾쇠(`<` `>`) 금지, "언제 쓰는지 + 언제 안 쓰는지" 포함, 약간 pushy
 - `version`: semver · `path`: 항상 `skills/<name>` · `group`: 선택(이름엔 넣지 않음)
 
