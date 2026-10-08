@@ -19,6 +19,7 @@
 
     --converter <폴더>    converter 스킬 폴더. converter 스킬이 없었으면 대신 --spec-skipped
     --source <파일> ...   원천 구조 문서. 문서 정보 표에 적혀 있으면 반드시 준다
+    --cq <파일> ...       CQ 문서. 수집할 때 줬으면 같은 파일을 준다
     --warn-mark <기호>    가이드가 정한 경고 기호가 ⚠ 가 아닐 때
 
 스킬이 적은 위치(4.2 스킬 행, 5절 부분 응답·응답 불가 행)는 정의 문서에서 다시 찾는다. 줄 번호가
@@ -30,7 +31,11 @@ CQ 문서가 CQ에 등급을 매겼으면 어느 말을 필수로 볼지 --requi
 모든 CQ를 필수로 본다. 설계 리포트 11절(입력 문서 간 불일치)을 확인해 INP-01 행을 4.2절에 모두 적었으면
 --manual-checked 를 준다. 주지 않으면 미수행 검사로 남는다.
 
-입력을 읽지 못하거나 맞지 않으면 판정 문서를 쓰지 않고 멈춘다. 읽지 못한 채 판정하면 Error가 가려진
+--previous 로 앞 차수 구조 판정을 주면 6절(앞 판정 대조)에서 앞 판정의 Error·Warning 지적과 이번 지적을 맞대
+해소·유지·신규·기준 변경·확인 불가로 가른다. 앞 판정은 절 번호가 아니라 제목으로 찾는다(0.2.0 판정은 6절이
+후속 조치다). 앞 판정을 주지 않았거나 읽지 못하면 6절에 사유 한 줄만 두고 판정은 이어 간다.
+
+입력을 읽지 못하거나 맞지 않으면 판정 문서를 쓰지 않고 멈춘다. 읽지 못한 채 판정하면 Error가 빠진
 문서가 「확정 가능」 으로 나가기 때문이다. 종료 코드: 0 확정 가능, 1 확정 불가, 2 판정하지 않음.
 
 문서의 꼴과 문체는 references/리포트-작성-규칙.md 를 따른다.
@@ -62,6 +67,13 @@ assert set(CQ_RULE.values()) | {"CQS-06"} | set(MAP_RULE.values()) == set(rc.JUD
 # 4.1 No.3~6 의 검사 이름과 결과값. No.1·No.2 는 수집 스크립트가 낸 값과 맞대 본다.
 CHECKS = {"3": "가이드 준수 검사", "4": "CQ-구조 정합성 검사", "5": "CQ 통과 조건 검사", "6": "매핑 의미 검사"}
 RESULT_RE = re.compile(r"통과|지적 [1-9]\d*건|미수행")
+
+# 5절(미수행 검사)의 검사 항목과 사유. 앞 판정 대조가 이 이름으로 규칙과 검사를 맞댄다
+SPEC_CHECK = "서식 변환 검사"
+SPEC_SKIPPED = "converter 스킬 없음"
+MAP_CHECK = "매핑 의미 검사"
+INP_CHECK = "입력 문서 간 불일치 확인"
+SRC_CHECK = "원천 구조 문서 대조(DOC-08)"
 
 # 필수 CQ 기준을 스킬이 정했다는 표시. 이 말이 있으면 CQS-06(CQ 등급 미확정)을 올린다.
 SKILL_DECIDED = ("스킬 판단", "전체 CQ")
@@ -365,7 +377,7 @@ def recollect(args, lines, heads):
     # 원인(정의 문서가 바뀜)으로 알리기 위해서다.
     try:
         now = cf.condition(args.definition, converter=args.converter, spec_skipped=args.spec_skipped,
-                           warn_mark=args.warn_mark, sources=args.source)
+                           warn_mark=args.warn_mark, sources=args.source, cq=args.cq)
     except cf.CollectError as e:
         raise InputError("수집 조건을 다시 만들지 못함: %s" % e, "정의 문서 또는 옵션")
     causes = []
@@ -385,6 +397,10 @@ def recollect(args, lines, heads):
     if src[0] != src[1]:
         causes.append("원천 구조 문서가 수집 때와 다름(수집 %d건, 판정 %d건, 또는 내용이 바뀜). --source 를 수집 때와 "
                       "같은 파일로 주거나 다시 수집함" % (len(src[0]), len(src[1])))
+    # CQ 문서 칸이 없는 옛 줄(0.2.0)은 맞대지 않는다. 그런 줄은 빌더 판본이 달라 아래에서 멈춘다
+    if written["CQ 문서"] != cf.OLD_CQ and written["CQ 문서"] != now["CQ 문서"]:
+        causes.append("CQ 문서가 수집 때와 다름(CQ 문서 해시 %s → %s). --cq 를 수집 때와 같은 파일로 주거나, "
+                      "CQ 문서를 고쳤으면 다시 수집함" % (written["CQ 문서"] or cf.NO_CQ, now["CQ 문서"] or cf.NO_CQ))
     if written["빌더"] != now["빌더"]:
         causes.append("수집 뒤 스킬이 바뀜(빌더 판본 해시 %s → %s). 수집 스크립트를 다시 수행해 4.1·4.2절을 바꿔 붙임"
                       % (written["빌더"], now["빌더"]))
@@ -393,7 +409,7 @@ def recollect(args, lines, heads):
                          "다시 수집하거나 옵션을 수집 때와 맞춤")
     try:
         res = cf.collect(args.definition, converter=args.converter, spec_skipped=args.spec_skipped,
-                         warn_mark=args.warn_mark, sources=args.source)
+                         warn_mark=args.warn_mark, sources=args.source, cq=args.cq)
     except cf.MismatchError as e:
         raise InputError("수집 스크립트를 다시 수행하지 못함: %s" % e, cf.MISMATCH_HINT)
     except cf.CollectError as e:
@@ -758,18 +774,18 @@ def judge(args, lines, rules):
 
     unchecked = []
     if args.spec_skipped:
-        unchecked.append(("서식 변환 검사", "converter 스킬 없음"))
+        unchecked.append((SPEC_CHECK, SPEC_SKIPPED))
     elif res["건수"]["서식 변환 검사"]["결과"] == "실패":
-        unchecked.append(("서식 변환 검사", "변환 실패로 규격 검사 미수행"))
+        unchecked.append((SPEC_CHECK, "변환 실패로 규격 검사 미수행"))
     if mapped is None:
-        unchecked.append(("매핑 의미 검사", map_skip))
+        unchecked.append((MAP_CHECK, map_skip))
     for n in ("3", "4", "5"):
         if results[n]["결과"] == "미수행":
             unchecked.append((CHECKS[n], results[n]["지적 내용"] or "검증 리포트 4.1절 지적 내용 없음"))
     if not args.manual_checked:
-        unchecked.append(("입력 문서 간 불일치 확인", "설계 리포트 11절 확인 결과 미반영"))
+        unchecked.append((INP_CHECK, "설계 리포트 11절 확인 결과 미반영"))
     if res["원천 구조 문서 대조"] != "수행":
-        unchecked.append(("원천 구조 문서 대조(DOC-08)",
+        unchecked.append((SRC_CHECK,
                           "원천 구조 문서 미제공" if not args.source else "텍스트로 읽을 수 없는 형식"))
 
     grade = {f["규칙"]: rules.get(f["규칙"])["등급"] for f in found}
@@ -793,6 +809,374 @@ def judge(args, lines, rules):
     return critical, major, leave, unchecked, counted, info
 
 
+# ── 앞 판정 대조 ──────────────────────────────────────────────────────────────
+
+PREV_NONE = "앞 판정 없음"
+# 스킬 판본 행이 없는 앞 판정의 판본. 정적 분석기 꼴 판정은 0.2.0부터다
+OLDEST = "0.2.0"
+CLASSES = ("해소", "유지", "신규", "기준 변경", "확인 불가")
+# CQS-01~04 의 (필수 여부, 판정값). 대조에서 필수 여부가 같은지 가른다
+CQ_OF = {rule: key for key, rule in CQ_RULE.items()}
+# 줄 단위 규칙. 줄 번호 대신 발생 경로의 원문 발췌로 가른다
+LINE_RULES = ("DOC-01", "DOC-02", "DOC-03", "DOC-11")
+SUMMARY_HEAD = ("No.", "규칙", "위치", "문제 설명")
+INP_UNMATCHED = "INP-01 위치를 설계 리포트 11절 No.로 맞추지 못함"
+INP_UNMATCHED_WHY = "INP-01 위치를 설계 리포트 11절 No.로 맞추지 못해"     # 표 아래 ※ 줄에서 까닭으로 쓰는 꼴
+# 상세표 발생 경로 칸이 표 아래 ※ 주석을 가리키는 두 안내 문구(graded()). 이 글과 같을 때만 주석에서 경로를 찾는다
+NOTE_SAME = "표 아래 ※ 주석에 적음"
+NOTE_EACH = "건별로 표 아래 ※ 주석에 적음"
+
+
+class PreviousError(Exception):
+    """앞 판정을 대조에 쓸 수 없다. 멈추지 않고 6절에 사유 한 줄을 적는다. unreadable 이면 파일을 읽지 못했다."""
+
+    def __init__(self, detail, unreadable=False):
+        super().__init__(detail)
+        self.unreadable = unreadable
+
+
+def unesc(text):
+    """esc() 로 막은 역슬래시·세로줄을 푼다. 표 밖 ※ 주석 줄에 쓴다(표 칸은 split_row 가 푼다)."""
+    return re.sub(r"\\([\\|])", r"\1", text)
+
+
+def previous_findings(lines, span, grade):
+    """앞 판정 3.1·3.2 소절의 지적. 요약표에서 규칙·위치·문제 설명, 상세표에서 외부 코드·발생 경로·참고 자료를 가져온다."""
+    found = tables(lines, span)
+    body = [ln.strip() for ln in lines[span[0]:span[1]]]
+    if not found:
+        if NONE in body:
+            return []
+        raise PreviousError("%s 소절에 요약표도 '해당 없음'도 없음" % grade)
+    head, rows = found[0]
+    if head != [norm(c) for c in SUMMARY_HEAD]:
+        raise PreviousError("%s 요약표 머리글이 %s 이 아님" % (grade, " | ".join(SUMMARY_HEAD)))
+    summary = {}
+    for k, row in enumerate(rows, 1):
+        if len(row) != len(SUMMARY_HEAD) or row[0] != str(k) or not rc.RULE_RE.fullmatch(row[1]):
+            raise PreviousError("%s 요약표 %d번째 행의 꼴이 다름" % (grade, k))
+        summary[k] = {"규칙": row[1], "위치": row[2], "문제 설명": row[3], "등급": grade, "번호": "%s-%d" % (grade, k)}
+    notes = {}
+    for ln in body:
+        m = re.fullmatch(r"※ No\.(\d+)(?:~(\d+))? 발생 경로: (.*)", unesc(ln))
+        if m:
+            a = int(m.group(1))
+            notes[(a, int(m.group(2) or a))] = m.group(3)
+    covered = set()
+    for head, rows in found[1:]:
+        if head != [norm("항목"), norm("내용")]:
+            continue
+        detail = {cell(r, 0): cell(r, 1) for r in rows}
+        m = re.fullmatch(r"%s-(\d+)(?:~(\d+))?" % grade, detail.get("지적 번호", ""))
+        if not m:
+            raise PreviousError("%s 상세표 지적 번호 '%s'의 꼴이 다름" % (grade, detail.get("지적 번호", "")))
+        a = int(m.group(1))
+        b = int(m.group(2) or a)
+        group = list(range(a, b + 1))
+        if any(n not in summary or n in covered for n in group):
+            raise PreviousError("%s 상세표 %s가 요약표 No.와 맞지 않음" % (grade, detail["지적 번호"]))
+        if not all(detail.get("규칙", "").startswith(summary[n]["규칙"]) for n in group):
+            raise PreviousError("%s 상세표 %s의 규칙이 요약표와 다름" % (grade, detail["지적 번호"]))
+        refs = detail.get("참고 자료", "")
+        # 묶인 INP-01 은 참고 자료의 설계 리포트 11절 No.가 행 수만큼 있어야 행마다 나눠 준다
+        numbers = re.findall(r"설계 리포트 11절 No\.[1-9]\d*", refs)
+        for k, n in enumerate(group):
+            route = detail.get("발생 경로", "")
+            if route in (NOTE_SAME, NOTE_EACH):     # 원문 발췌에 '※ 주석' 글자가 든 경로는 주석을 찾지 않는다
+                route = notes.get((a, b), notes.get((n, n)))
+                if route is None:
+                    raise PreviousError("%s 요약표 No.%d의 발생 경로 주석이 없음" % (grade, n))
+            summary[n].update({"외부 코드": detail.get("외부 코드", NONE), "발생 경로": route,
+                               "참고 자료": refs if len(group) == 1 or len(numbers) != len(group) else numbers[k]})
+            covered.add(n)
+    missing = sorted(set(summary) - covered)
+    if missing:
+        raise PreviousError("%s 요약표 No.%d의 상세표가 없음" % (grade, missing[0]))
+    return [summary[n] for n in sorted(summary)]
+
+
+def read_previous(path):
+    """앞 구조 판정을 읽는다. {판본, 기준, 지적, Info, 미수행}. 읽지 못하거나 꼴이 다르면 PreviousError."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        raise PreviousError("파일 없음", unreadable=True)
+    except UnicodeDecodeError:
+        raise PreviousError(di.NOT_UTF8, unreadable=True)
+    except OSError as e:
+        raise PreviousError("읽기 실패: %s" % (e.strerror or e), unreadable=True)
+    if not lines or not re.fullmatch(r"# .+ 온톨로지 구조 판정\s*", lines[0]):
+        raise PreviousError("첫 줄이 '# <이름> 온톨로지 구조 판정'이 아님")
+    version = info_table(lines).get("스킬 판본", OLDEST)
+    if not rc.VERSION_RE.fullmatch(version):
+        raise PreviousError("문서 정보 표의 스킬 판본 '%s'이 판본 꼴이 아님" % version)
+    heads = headings(lines)
+
+    def section_of(words, label):
+        span = find_section(heads, words)
+        if span is None:
+            raise PreviousError("'%s' 절이 없음" % label)
+        return span
+
+    basis = next((cell(r, 1) for _, rows in tables(lines, section_of(("판정 결과",), "판정 결과")) for r in rows
+                  if cell(r, 0) == "필수 CQ 기준"), None)
+    if basis is None:
+        raise PreviousError("판정 결과 절에 '필수 CQ 기준' 행이 없음")
+    found = []
+    for grade in ("Error", "Warning"):
+        found += previous_findings(lines, section_of((grade,), grade), grade)
+    counts = {}
+    for head, rows in tables(lines, section_of(("조치 대상 외",), "조치 대상 외 항목")):
+        ri, ci = column(head, "규칙"), column(head, "건수")
+        for r in rows:
+            m = re.fullmatch(r"(\d+)건", cell(r, ci))
+            if not m:
+                raise PreviousError("조치 대상 외 항목 표의 건수 '%s'의 꼴이 다름" % cell(r, ci))
+            counts[cell(r, ri)] = int(m.group(1))
+    skipped = {}
+    for head, rows in tables(lines, section_of(("미수행 검사",), "미수행 검사")):
+        ci, wi = column(head, "검사 항목"), column(head, "미수행 사유")
+        skipped.update({cell(r, ci): cell(r, wi) for r in rows})
+    return {"판본": version, "기준": basis, "지적": found, "Info": counts, "미수행": skipped}
+
+
+def check_of(rule, skipped):
+    """그 규칙의 검사가 skipped({검사 항목: 사유}, 판정 5절)에서 미수행이면 검사 항목, 수행했으면 None."""
+    if rule == "CNV-01":        # 변환 실패로 규격 검사만 못 했으면 CNV-01 은 수행한 것이다
+        return SPEC_CHECK if skipped.get(SPEC_CHECK) == SPEC_SKIPPED else None
+    if rule in ("CQS-02", "CQS-04"):    # CQ-구조 정합성 검사와 CQ 통과 조건 검사가 둘 다 미수행일 때만
+        both = (CHECKS["4"], CHECKS["5"])
+        return "·".join(both) if all(c in skipped for c in both) else None
+    names = {"DOC-08": SRC_CHECK, "GDE-01": CHECKS["3"], "GDE-02": CHECKS["3"], "CQS-01": CHECKS["4"],
+             "CQS-03": CHECKS["4"], "CQS-05": CHECKS["4"], "INP-01": INP_CHECK}
+    name = names.get(rule) or (SPEC_CHECK if rule.startswith("SPC-") else MAP_CHECK if rule.startswith("MAP-") else None)
+    return name if name in skipped else None
+
+
+def inp_number(f):
+    """INP-01 의 설계 리포트 11절 No.. 위치가 새 꼴이면 위치에서, 옛 꼴이면 참고 자료에서 하나로 정해질 때만. 아니면 None."""
+    try:
+        head, values = di.parse_location(f["위치"])
+    except di.LocationError:
+        head, values = None, {}
+    if head == "입력 문서" and values["name"] == "설계 리포트":
+        m = re.fullmatch(r"11절 No\.([1-9]\d*)", values["part"])
+        return int(m.group(1)) if m else None
+    numbers = set(re.findall(r"설계 리포트 11절 No\.([1-9]\d*)", f.get("참고 자료", "")))
+    return int(numbers.pop()) if len(numbers) == 1 else None
+
+
+def element(location):
+    """위치가 가리키는 요소들의 열쇠. '; ' 로 이은 위치는 조각마다. 풀 수 없으면 줄 번호를 지운 원문."""
+    try:
+        return tuple(di.element_key(p) for p in di.split_locations(location))
+    except di.LocationError:
+        return (("원문", re.sub(r"\d+줄", "줄", location)),)
+
+
+def excerpt(route):
+    """발생 경로 '정의 문서 n줄: 발췌' 의 발췌. 꼴이 다르면 경로 그대로."""
+    m = re.fullmatch(r"정의 문서 \d+줄: (.*)", route or "", re.S)
+    return m.group(1) if m else route
+
+
+def match_key(f):
+    """앞 판정과 이번 판정의 지적을 맞대는 열쇠(구조-판정-서식.md '앞 판정 대조'). 줄 번호는 넣지 않는다."""
+    rule, route = f["규칙"], f.get("발생 경로", "")
+    if rule in CQ_OF:
+        first = di.split_locations(f["위치"])[0]
+        try:
+            number = di.parse_location(first)[1].get("number", first)
+        except di.LocationError:
+            number = first
+        return ("CQ 응답", number)
+    if rule == "CQS-06":
+        return (rule,)
+    if rule == "INP-01":
+        return (rule, inp_number(f))
+    el = element(f["위치"])
+    if rule in LINE_RULES:
+        return (rule, el, excerpt(route))
+    if rule == "DOC-05":        # 문제 설명으로 경우를 가른다. 읽히지 않는 설명은 발췌도 본다
+        if "읽히지 않" in f["문제 설명"]:
+            return (rule, el, "읽히지 않는 설명", excerpt(route))
+        return (rule, el, "설명 없음")
+    if rule == "CNV-01":
+        m = re.search(r"변환 실패\((.*)\)\Z", route, re.S)
+        return (rule, el, m.group(1) if m else route)
+    if rule.startswith(("SPC-", "GDE-")):
+        return (rule, code_key(f.get("외부 코드")), el)
+    return (rule, el)
+
+
+def code_key(text):
+    """외부 코드 칸을 열쇠로 쓸 묶음. 쉼표와 가운뎃점으로 나눠 공백을 떼고 정렬한다.
+    스킬이 다시 적는 GDE 행은 'C-01, R-01'·'C-01,R-01'·'C-01·R-01'처럼 잇는 꼴만 다를 수 있기 때문이다."""
+    return tuple(sorted(c.strip() for c in re.split(r"[,·]", text or NONE) if c.strip()))
+
+
+def compare(prev, current, rules, skipped, basis, leave):
+    """앞 판정 prev 와 이번 지적 current([(지적 번호, 지적)])를 맞댄다.
+
+    분류는 네 걸음이다. ① 이번에 검사가 미수행인 규칙의 지적을 앞·이번 모두 빼고 앞 지적을 확인 불가로
+    ② 남은 지적을 열쇠로 짝지어 유지(CQS 는 필수 여부가 바뀐 짝을 기준 변경으로) ③ 짝이 없는 지적에
+    판본·필수 CQ 기준 때문의 기준 변경 ④ 나머지를 해소·신규로. 같은 열쇠가 앞 m건·이번 n건이면 min(m, n)건을 짝짓는다.
+    {행: [(분류, 규칙, 위치, 앞 판정, 이번 판정, 비고)], 건수: {분류: n}, 주석: [줄]} 을 돌려준다.
+    """
+    pv, cv = rc.version_key(prev["판본"]), rc.version_key(rc.SKILL_VERSION)
+    basis_changed = norm(prev["기준"]) != norm(basis)
+    prev_items = [(f["번호"], f) for f in prev["지적"]]
+    inp_bad = any(f["규칙"] == "INP-01" and inp_number(f) is None for _, f in prev_items + current)
+
+    def unconfirmed(rule):
+        if rule == "INP-01" and inp_bad and not check_of(rule, skipped):
+            return INP_UNMATCHED
+        return check_of(rule, skipped)
+
+    rows, notes = [], []
+    held = {}       # 확인 불가 규칙 → 이번 지적 수
+    for _, f in current:
+        if unconfirmed(f["규칙"]):
+            held[f["규칙"]] = held.get(f["규칙"], 0) + 1
+    left_prev = []
+    for no, f in prev_items:
+        check = unconfirmed(f["규칙"])
+        if not check:
+            left_prev.append((no, f))
+            continue
+        why = check if check == INP_UNMATCHED else "이번 판정 5절 미수행(%s)" % check
+        if held.get(f["규칙"]):
+            why += ". 이번 지적 %d건은 대조하지 않음" % held[f["규칙"]]
+        rows.append(("확인 불가", f["규칙"], f["위치"], no, NONE, why))
+    for rule in sorted(r for r in held if r not in {f["규칙"] for _, f in prev_items}):
+        check = unconfirmed(rule)
+        notes.append("※ %s 이번 지적 %d건은 %s 대조하지 않음"
+                     % (rule, held[rule], INP_UNMATCHED_WHY if check == INP_UNMATCHED
+                        else "이번 판정 5절 미수행(%s)이라" % check))
+    left_cur = [(no, f) for no, f in current if not unconfirmed(f["규칙"])]
+
+    groups = {}
+    for side, items in ((0, left_prev), (1, left_cur)):
+        for no, f in items:
+            groups.setdefault(match_key(f), ([], []))[side].append((no, f))
+    unpaired_prev, unpaired_cur = [], []
+    for key, (ps, cs) in groups.items():
+        for (pno, p), (cno, c) in zip(ps, cs):
+            pr, cr = p["규칙"], c["규칙"]
+            rule = pr if pr == cr else "%s → %s" % (pr, cr)
+            if pr == cr:
+                kind, why = "유지", NONE
+            elif CQ_OF[pr][0] == CQ_OF[cr][0]:
+                kind, why = "유지", "%s → %s" % (CQ_OF[pr][1], CQ_OF[cr][1])
+            else:
+                kind = "기준 변경"
+                why = "필수 여부 바뀜(%s → %s)" % tuple("필수 CQ" if CQ_OF[r][0] else "필수가 아닌 CQ" for r in (pr, cr))
+            rows.append((kind, rule, c["위치"], pno, cno, why))
+        n = min(len(ps), len(cs))
+        unpaired_prev += ps[n:]
+        unpaired_cur += cs[n:]
+
+    for no, f in unpaired_cur:
+        rule = f["규칙"]
+        changed = rules.get(rule)["바뀐 판본"]
+        if pv < rc.version_key(changed) <= cv:
+            kind, why = "기준 변경", "규칙 기준이 바뀜(바뀐 판본 %s)" % changed
+        elif rule == "CQS-06" and basis_changed:
+            kind, why = "기준 변경", "필수 CQ 기준이 바뀜"
+        else:
+            kind, why = "신규", "앞 차수 미수행" if check_of(rule, prev["미수행"]) else NONE
+        rows.append((kind, rule, f["위치"], NONE, no, why))
+    for no, f in unpaired_prev:
+        rule = f["규칙"]
+        now = rules.get(rule) if rule in rules else None
+        if now is None:
+            kind, why = "기준 변경", "규칙 목록에 없는 규칙"
+        elif now["상태"] != "사용":
+            kind, why = "기준 변경", "규칙을 쓰지 않게 됨"
+        elif now["등급"] != f["등급"]:
+            kind, why = "기준 변경", "등급이 바뀜(%s → %s)" % (f["등급"], now["등급"])
+        elif rule == "CQS-06" and basis_changed:
+            kind, why = "기준 변경", "필수 CQ 기준이 바뀜"
+        else:
+            kind, why = "해소", NONE
+        rows.append((kind, rule, f["위치"], no, NONE, why))
+
+    def order(row):
+        rule = row[1].split(" → ")[0]
+        ids = [re.fullmatch(r"(Error|Warning)-(\d+)", x) for x in (row[3], row[4])]
+        return (CLASSES.index(row[0]), rules.order(rule) if rule in rules else len(rules.rules),
+                [(m.group(1) != "Error", int(m.group(2))) if m else (True, 0) for m in ids])
+    rows.sort(key=order)
+    now_info = {r[0]: int(r[2][:-1]) for r in leave}
+    changed = []
+    for r in rules.rules:
+        a, b = prev["Info"].get(r, 0), now_info.get(r, 0)
+        if a == b:
+            continue
+        # 한쪽 판정에서 그 규칙의 검사를 수행하지 않았으면 0건이 풀린 것이나 새로 생긴 것으로 읽히므로 건수를 적지 않는다
+        if check_of(r, skipped):
+            changed.append("%s 확인 불가(이번 판정 5절 미수행(%s))" % (r, check_of(r, skipped)))
+        elif check_of(r, prev["미수행"]):
+            changed.append("%s 확인 불가(앞 차수 미수행)" % r)
+        else:
+            changed.append("%s %d건 → %d건" % (r, a, b))
+    notes.append("※ Info 건수 증감: %s" % (", ".join(changed) or NONE))
+    return {"행": rows, "건수": {k: sum(1 for r in rows if r[0] == k) for k in CLASSES}, "주석": notes}
+
+
+def previous_comparison(args, rules, critical, major, leave, unchecked, basis):
+    """6절 재료. 앞 판정을 주지 않았거나 대조에 쓸 수 없으면 {사유}, 아니면 compare() 결과에 앞 판정 머리 값을 더한 것."""
+    if not args.previous:
+        return {"사유": PREV_NONE}
+    shown = cf.shown_path(args.previous)
+    # 이번 판정 문서 자리이거나 이번 차수 이상인 판정은 앞 판정이 아니다. 같은 파일이면 덮어쓰기 전 옛 내용과 맞대게 된다
+    if args.out and os.path.realpath(args.previous) == os.path.realpath(args.out):
+        return {"사유": "앞 판정이 이번 판정 문서와 같은 파일이라 대조하지 않음: `%s`" % shown}
+    if round_in(args.previous) >= round_of(args):
+        return {"사유": "앞 판정의 차수(%d차)가 이번 차수(%d차) 이상이라 대조하지 않음: `%s`"
+                      % (round_in(args.previous), round_of(args), shown)}
+    try:
+        prev = read_previous(args.previous)
+    except PreviousError as e:
+        if e.unreadable:
+            return {"사유": "앞 판정을 읽지 못해 대조하지 않음: `%s`(%s)" % (shown, e)}
+        return {"사유": "앞 판정의 꼴이 구조 판정 서식과 달라 대조하지 않음: `%s`(%s)" % (shown, e)}
+    current = numbered_findings(critical, "Error", rules) + numbered_findings(major, "Warning", rules)
+    out = compare(prev, current, rules, dict(unchecked), basis, leave)
+    out.update({"경로": shown, "판본": prev["판본"], "기준": prev["기준"], "이번 기준": basis})
+    return out
+
+
+def versus(cmp):
+    """2절 '앞 판정 대비' 칸."""
+    if "사유" in cmp:
+        return NONE
+    return " · ".join("%s %d건" % (k, cmp["건수"][k]) for k in CLASSES)
+
+
+def comparison_lines(cmp):
+    """6절 본문."""
+    if "사유" in cmp:
+        return [cmp["사유"]]
+    out = ["- 앞 판정: `%s`" % cmp["경로"],
+           "- 스킬 판본: 앞 판정 %s, 이번 판정 %s" % (cmp["판본"], rc.SKILL_VERSION),
+           "- 필수 CQ 기준: 앞 판정 %s, 이번 판정 %s" % (cmp["기준"], cmp["이번 기준"]), ""]
+    out += table(["분류", "규칙", "위치", "앞 판정", "이번 판정", "비고"], [list(r) for r in cmp["행"]])
+    return out + [""] + [esc(n) for n in cmp["주석"]]
+
+
+def round_of(args):
+    """차수. 판정 문서(-o), 없으면 검증 리포트 파일 이름의 '-N차'. 없으면 1차."""
+    return round_in(args.out or args.report)
+
+
+def round_in(path):
+    """파일 이름 끝 '-N차.md' 의 N. 없으면 1차."""
+    m = re.search(r"-([1-9]\d*)차\.md$", os.path.basename(path))
+    return int(m.group(1)) if m else 1
+
+
 # ── 판정 문서 ────────────────────────────────────────────────────────────────
 
 def sentences(text):
@@ -809,6 +1193,12 @@ def arrange(items, rules):
         key = (f["규칙"], f["외부 코드"], f["문제 설명"], f["조치 방안"], f["조치 주체"])
         groups.setdefault(key, []).append(f)
     return list(groups.values())
+
+
+def numbered_findings(items, label, rules):
+    """요약표 차례의 [(지적 번호, 지적)]. 지적 번호는 'Error-3' 꼴이다. 앞 판정 대조가 쓴다."""
+    flat = [f for g in arrange(items, rules) for f in g]
+    return [("%s-%d" % (label, n), f) for n, f in enumerate(flat, 1)]
 
 
 def record(group):
@@ -842,10 +1232,10 @@ def graded(label, items, rules):
         if len(set(paths)) == 1 and sentences(paths[0]) <= 2:
             route = paths[0]
         elif len(set(paths)) == 1:
-            route = "표 아래 ※ 주석에 적음"
+            route = NOTE_SAME
             notes.append("※ %s 발생 경로: %s" % (nos, paths[0]))
         else:
-            route = "건별로 표 아래 ※ 주석에 적음"
+            route = NOTE_EACH
             notes += ["※ No.%d 발생 경로: %s" % (k, p) for k, p in enumerate(paths, a)]
         refs = []
         for x in g:
@@ -889,7 +1279,7 @@ def follow_ups(critical, major, unchecked):
     return out
 
 
-def report(args, rules, critical, major, leave, unchecked, counted, info):
+def report(args, rules, critical, major, leave, unchecked, counted, info, cmp):
     name = args.name or os.path.basename(args.definition).split("-온톨로지")[0]
     verdict = "확정 불가" if critical else "확정 가능"
     tally = counted["집계"]
@@ -899,6 +1289,8 @@ def report(args, rules, critical, major, leave, unchecked, counted, info):
     p = ["# %s 온톨로지 구조 판정" % name, "",
          "| 항목 | 내용 |", "|---|---|",
          "| 판정일 | %s |" % datetime.date.today().isoformat(),
+         "| 차수 | %d차 |" % round_of(args),
+         "| 스킬 판본 | %s |" % rc.SKILL_VERSION,
          "| 대상 문서 | `%s` |" % esc(cf.shown_path(args.definition)),
          "| 검증 리포트 | `%s` |" % esc(cf.shown_path(args.report))]
     for key in CARRY_OVER:
@@ -945,7 +1337,8 @@ def report(args, rules, critical, major, leave, unchecked, counted, info):
           "| Warning | %d건 |" % len(major),
           "| 미수행 검사 | %s |" % ("%d건" % len(unchecked) if unchecked else NONE),
           "| 필수 CQ 응답 | %d건 중 %d건 응답 가능(전체 CQ %d건) |" % (req_total, req_yes, counted["전체"]),
-          "| 필수 CQ 기준 | %s |" % esc(counted["기준"])]
+          "| 필수 CQ 기준 | %s |" % esc(counted["기준"]),
+          "| 앞 판정 대비 | %s |" % versus(cmp)]
     if unchecked:
         p += ["", "- 미수행 검사 %d건이 있어 판정은 수행한 검사 범위 내에서만 유효함(5절 참조)" % len(unchecked)]
 
@@ -966,7 +1359,10 @@ def report(args, rules, critical, major, leave, unchecked, counted, info):
         p += ["- 미수행 검사 항목은 판정에 반영되지 않았으므로 해당 범위의 지적 사항이 있을 수 있음", ""]
     p += table(["검사 항목", "미수행 사유"], [list(u) for u in unchecked])
 
-    p += ["", "## 6. 후속 조치", ""]
+    p += ["", "## 6. 앞 판정 대조", ""]
+    p += comparison_lines(cmp)
+
+    p += ["", "## 7. 후속 조치", ""]
     p += ["- %s" % s for s in follow_ups(critical, major, unchecked)]
     return "\n".join(p)
 
@@ -988,6 +1384,10 @@ def main():
                     help="설계 리포트 11절을 확인해 입력 문서 간 불일치(INP-01) 행을 4.2절에 모두 적었다")
     ap.add_argument("--warn-mark", default=None, metavar="기호",
                     help="가이드가 정한 경고 기호. 수집 때 준 것과 같게 준다")
+    ap.add_argument("--cq", nargs="+", default=[], metavar="파일",
+                    help="CQ 문서. 수집 때 --cq 로 준 것과 같은 파일을 준다")
+    ap.add_argument("--previous", default=None, metavar="파일",
+                    help="앞 차수 구조 판정. 주면 6절에서 앞 판정의 지적과 대조한다. 읽지 못해도 멈추지 않는다")
     ap.add_argument("--name", default=None, help="문서 제목에 쓸 이름")
     ap.add_argument("-o", "--out", default=None, metavar="파일",
                     help="판정 문서를 쓸 곳. 주지 않으면 화면에 낸다")
@@ -1005,7 +1405,8 @@ def main():
         except (OSError, UnicodeDecodeError) as e:
             raise InputError("검증 리포트를 읽지 못함: %s (%s)" % (args.report, e), "검증 리포트 경로")
         critical, major, leave, unchecked, counted, info = judge(args, lines, rules)
-        text = report(args, rules, critical, major, leave, unchecked, counted, info)
+        cmp = previous_comparison(args, rules, critical, major, leave, unchecked, counted["기준"])
+        text = report(args, rules, critical, major, leave, unchecked, counted, info, cmp)
         if args.out:
             try:
                 with open(args.out, "w", encoding="utf-8") as f:
@@ -1032,6 +1433,8 @@ def main():
     if args.out:
         print("판정: %s   Error %d건 · Warning %d건 · 미수행 검사 %d건"
               % ("확정 불가" if critical else "확정 가능", len(critical), len(major), len(unchecked)))
+        if args.previous:
+            print("앞 판정 대비: %s" % ("사유" in cmp and cmp["사유"] or versus(cmp)))
         print("썼다: %s" % args.out)
     else:
         print(text)

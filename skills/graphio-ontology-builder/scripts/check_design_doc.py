@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""온톨로지 정의 문서에서 '오류 없이 사라지는 것'을 찾는다.
+"""온톨로지 정의 문서에서 변환 스크립트가 오류 없이 빠뜨리거나 잘못 옮기는 줄을 찾는다.
 
-변환 스크립트는 서식 오류를 잡는다. 이 스크립트는 서식은 맞는데
-내용이 새어 나가는 자리를 잡는다 — 오류가 나지 않아 아무도 모르는 것들이다.
+변환 스크립트는 서식 오류를 잡는다. 이 스크립트는 서식은 맞는데 변환 스크립트가 오류 없이 정의 파일에
+옮기지 않거나 다른 칸에 옮기는 줄을 잡는다. 변환 스크립트와 규격 검사기가 오류를 내지 않으므로
+이 검사가 없으면 드러나지 않는 것들이다.
 
     python3 check_design_doc.py <온톨로지-정의.md>
 
@@ -289,7 +290,7 @@ def check(lines, blocks, idx, mark, source):
                          "규칙": rule, "경우": case, "위치": idx.locate_line(line), "줄": line,
                          "발췌": excerpt, "발췌 줄": at})
 
-    # DOC-01 설명 줄에서 떨어져 나간 줄 — 변환할 때 조용히 버려진다
+    # DOC-01 설명 줄에서 떨어진 줄. 변환 스크립트가 오류 없이 버린다(누락)
     for b in blocks:
         for ln, s in b["after"]:
             if STRANDED.match(s):
@@ -306,7 +307,7 @@ def check(lines, blocks, idx, mark, source):
                 "앞말 받침 유무에 맞는 조사 하나만 남김(받침 있음: 이/은/을/과, 없음: 가/는/를/와)",
                 i + 1, around(line, m.start(), m.end()), i + 1)
 
-    # DOC-03 표 안에 세로줄이 새어 칸 수가 어긋났다
+    # DOC-03 표 칸 안에 세로줄이 들어가 칸 수가 머리글과 어긋났다
     #      표마다 그 표의 머리글과 맞대 본다. 블록 안 둘째 표는 DOC-11 이 따로 잡는다.
     #      칸은 변환 스크립트처럼 나눈다(di.split_row). 양끝 세로줄은 하나씩만 떼므로 빈 끝 칸(||)도 칸이다.
     for b in blocks:
@@ -341,7 +342,7 @@ def check(lines, blocks, idx, mark, source):
 
     # DOC-05 설명이 아예 없는 개념, 또는 설명 줄은 있으나 변환 스크립트가 설명을 읽지 않는 개념
     #      변환 스크립트는 제목 아래부터 첫 표·제목 줄(#) 앞까지만, 머리가 '설명'·'description' 인 줄만
-    #      설명으로 읽는다(색인의 desc). 표나 소제목 뒤의 설명 줄과 '- desc:' 줄은 오류 없이 버려져
+    #      설명으로 읽는다(색인의 desc). 표나 소제목 뒤의 설명 줄과 '- desc:' 줄은 오류 없이 정의 파일에 옮기지 않아
     #      변환된 개념에 설명이 없다. 이때는 이 검사기가 설명으로 본 줄(여럿이면 마지막 줄)로 짚는다.
     #      다만 DOC-11 소제목 뒤 표가 있는 블록에서 그 소제목을 지우면 설명도 읽히면 DOC-11 행만 낸다
     #      (검사-규칙.md 4절). 한 결함(소제목)을 두 건으로 세지 않기 위해서다.
@@ -463,7 +464,7 @@ def unreadable(args, doc, path, problem, detail=""):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="온톨로지 정의 문서에서 조용히 사라지는 것을 찾는다.")
+    ap = argparse.ArgumentParser(description="온톨로지 정의 문서에서 변환 스크립트가 오류 없이 빠뜨리거나 잘못 옮기는 줄을 찾는다.")
     ap.add_argument("path")
     ap.add_argument("--warn-mark", default="⚠", help="가이드가 정한 경고 기호 (기본 ⚠)")
     ap.add_argument("--source", nargs="*", default=[],
@@ -535,7 +536,7 @@ def main():
         print()
 
     if not findings:
-        print("조용히 사라지는 자리를 찾지 못했다.")
+        print("변환 때 누락되거나 다른 칸으로 옮겨지는 결함을 찾지 못했다.")
         print("내용이 맞는지는 사람이 본다 — 질문이 쓰지 않는 개념, 근거 없이 채운 값 같은 것이다.")
         return 0
 

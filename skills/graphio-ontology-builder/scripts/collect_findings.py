@@ -8,7 +8,7 @@
 
     python3 collect_findings.py <온톨로지-정의.md> --converter <converter 스킬 폴더>
     python3 collect_findings.py <온톨로지-정의.md> --spec-skipped     # converter 스킬이 없을 때
-    ... [--source <원천 구조 문서> ...] [--warn-mark ※] [--json]
+    ... [--source <원천 구조 문서> ...] [--cq <CQ 문서> ...] [--warn-mark ※] [--json]
 
 검증 리포트 4.1 표의 No.1·No.2 행, 4.1 표 아래 자동 채움 주석, 4.2 지적 목록 표와 그 아래
 수집 조건 주석을 낸다. 붙일 꼴은 [ ] 머리말 아래에 있고 머리말 줄은 붙이지 않는다.
@@ -20,8 +20,9 @@
     자동 채움 주석  4.1 표 아래 '※ No.2 자동 채움:' 줄 목록. 변환이 실패하면 비어 있다
     지적 목록      4.2 행 [{No., 규칙, 외부 코드, 위치, 문제 설명, 발생 경로, 조치 방안, 조치 주체, 참고 자료, 줄}].
                    값은 세로줄을 막지 않은 원문이고, 줄은 위치에 적은 줄 번호다
-    수집 조건      {줄, 정의 문서, 경고 기호, 규격 검사, converter, 원천 구조 문서, 빌더}. 줄은 parse_condition() 으로 되푼다.
-                   원천 구조 문서 경로는 작업 폴더 아래면 상대 경로로 적는다(shown_path)
+    수집 조건      {줄, 정의 문서, CQ 문서, 경고 기호, 규격 검사, converter, 원천 구조 문서, 빌더}. 줄은 parse_condition() 으로
+                   되푼다. 원천 구조 문서 경로는 작업 폴더 아래면 상대 경로로 적는다(shown_path). CQ 문서는 --cq 로 준 파일의
+                   바이트 해시이고 주지 않았으면 None(줄에는 'CQ 문서 없음')이다
     원천 구조 문서 대조  '수행'·'미수행(원천 구조 문서 미제공)'·'미수행(텍스트로 읽을 수 없는 형식)'
     통계           정의 문서 검사기의 통계('확인 필요 표기' 등). 판정 스크립트가 4절 건수에 쓴다
     건수           정의 문서 검사 등급별 건수, 서식 변환 검사 결과와 나누기 뒤·겹침 처리 전 건수, 겹쳐서 DOC 행으로 적은 건수
@@ -32,7 +33,7 @@
 
 아래 경우에는 표 행을 내지 않고 멈춘다(종료 코드 2). 규칙 목록 문서 확인에 걸림, 정의 문서를 읽지
 못함, 하위 스크립트가 예외로 끝나거나 JSON 을 내지 못함, converter 폴더에 두 스크립트가 없음,
---converter 와 --spec-skipped 를 함께 주거나 둘 다 주지 않음, 원천 구조 문서가 없거나 읽지 못함,
+--converter 와 --spec-skipped 를 함께 주거나 둘 다 주지 않음, 원천 구조 문서나 CQ 문서가 없거나 읽지 못함,
 변환표에 없는 코드·메시지 꼴, 색인과 변환 스크립트가 정의 문서를 다르게 읽음, 정의 문서 위치로
 되돌릴 수 없는 경로. 원천 구조 문서가 UTF-8 텍스트가 아니면 멈추지 않고 '대조 불가(형식)'로 적는다.
 하나라도 그러면 원천 구조 문서 대조(DOC-08)를 하지 않는다. 일부만 대조하면 읽지 못한 파일에만 있는
@@ -69,6 +70,8 @@ TIMEOUT = 300       # 하위 스크립트 하나에 주는 시간(초)
 MARK = "⚠"          # 정의 문서 검사기의 기본 경고 기호
 NONE = "해당 없음"
 NOT_TEXT = "대조 불가(형식)"
+NO_CQ = "없음"              # 수집 조건 줄의 'CQ 문서 없음'. CQ를 파일 없이 문장으로 받아 --cq 를 주지 않았다
+OLD_CQ = "CQ 해시 없음"      # CQ 문서 칸이 없는 옛 수집 조건 줄(0.2.0)을 풀면 CQ 문서 값이 이것이다
 COLUMNS = ("No.", "규칙", "외부 코드", "위치", "문제 설명", "발생 경로", "조치 방안", "조치 주체", "참고 자료")
 SPEC_RULE = {"error": "SPC-01", "warning": "SPC-02", "deferred": "SPC-03"}
 
@@ -87,7 +90,7 @@ THREE_DIRECTS = "방향 칸에 UNIDIRECTIONAL(→)·REVERSE_DIRECTIONAL(←)·BI
 
 # 정의 문서 검사기. (규칙, 경우) → (문제 설명, 조치 방안)
 DOC_TEXT = {
-    ("DOC-01", ""): ("개념 설명에서 떨어진 줄이 있음. 변환할 때 이 줄이 버려져 설명 내용이 누락됨",
+    ("DOC-01", ""): ("개념 설명에서 떨어진 줄이 있음. 변환 스크립트가 오류 없이 이 줄을 정의 파일에 옮기지 않아 설명 내용이 누락됨",
                      "떨어진 줄을 앞 `- 설명:` 줄 끝에 이어 붙임"),
     ("DOC-02", ""): ("조사 괄호가 남아 있음. 읽히지 않는 문장이 설명으로 반입되어 검색에 쓰임",
                      "앞말 받침에 맞는 조사 하나만 남김(받침 있음: 이·은·을·과, 받침 없음: 가·는·를·와)"),
@@ -113,7 +116,7 @@ DOC_TEXT = {
     ("DOC-09", ""): ("대상 환경에 아직 없는 데이터 구조임. 반입 전에 대상 환경에서 만들어야 함", NONE),
     ("DOC-11", "둘째 표"): (
         "블록 안의 둘째 표임. 변환 스크립트가 블록마다 첫 표만 읽어(Link Type은 첫 절의 첫 표만) 이 표의 내용이 "
-        "오류 없이 버려짐", "표 내용을 블록의 첫 표나 설명 줄로 옮기고 둘째 표를 지움"),
+        "오류 없이 정의 파일에서 누락됨", "표 내용을 블록의 첫 표나 설명 줄로 옮기고 둘째 표를 지움"),
     ("DOC-11", "소제목 뒤 표"): (
         "블록 제목과 첫 표 사이에 소제목이 있음. 변환 스크립트가 소제목에서 표 읽기를 멈춰 이 블록의 표 내용이 "
         "모두 누락됨", "블록 제목과 첫 표 사이의 소제목 줄을 지움"),
@@ -295,7 +298,7 @@ SPEC_TEXT = {
     ("error", "GOS61021", "연결할 Object Type 이름이 없다."): (
         "매핑할 개념 이름이 없음. 반입할 수 없음", "매핑 제목의 화살표 앞에 개념 이름을 적음", None),
     ("error", "GOS61021", "%r 은 이 파일의 objectTypes 에 없다. 반입 시 이 항목은 조용히 버려진다."): (
-        "매핑한 개념이 정의 문서에 없음. 반입할 때 이 매핑이 버려짐",
+        "매핑한 개념이 정의 문서에 없음. 반입할 때 오류 없이 이 매핑이 반입되지 않음",
         "매핑 제목의 개념 이름을 Object Type 절의 이름과 맞추거나 이 매핑을 지움", None),
     ("error", "-", "연결할 Meta Type 이름이 없다."): (
         "매핑할 데이터 구조 이름이 없음. 반입할 수 없음", "매핑 제목의 화살표 뒤에 데이터 구조 이름을 적음", None),
@@ -468,24 +471,49 @@ def version_hash(paths):
     return h.hexdigest()[:12]
 
 
+def cq_hash(paths):
+    """CQ 문서의 바이트 해시 앞 12자. 텍스트로 읽지 않으므로 CQ 문서 형식 때문에 멈추지 않는다.
+
+    한 건이면 file_hash() 와 같다. 여러 건이면 파일마다의 해시를 정렬해 묶으므로 준 차례와 경로에 매이지 않는다.
+    주지 않았으면 None. 없거나 읽지 못하면 CollectError.
+    """
+    hashes = []
+    for p in paths:
+        try:
+            with open(p, "rb") as f:
+                hashes.append(hashlib.sha256(f.read()).hexdigest())
+        except FileNotFoundError:
+            raise CollectError("CQ 문서가 없음: %s" % p)
+        except OSError as e:
+            raise CollectError("CQ 문서를 읽지 못함: %s (%s)" % (p, e.strerror or e))
+    if not hashes:
+        return None
+    if len(hashes) == 1:
+        return hashes[0][:12]
+    return hashlib.sha256("".join(sorted(hashes)).encode("ascii")).hexdigest()[:12]
+
+
 def condition_line(cond):
     """수집 조건 한 줄. 4.2 표 아래 첫 ※ 주석이 된다. parse_condition() 이 되푼다."""
     spec = "수행(converter %s)" % cond["converter"] if cond["규격 검사"] == "수행" else "미수행"
     sources = "; ".join("%s %s" % (s["경로"], s["해시"] or NOT_TEXT) for s in cond["원천 구조 문서"])
-    return ("※ 수집 조건: 정의 문서 %s, 경고 기호 %s, 규격 검사 %s, 원천 구조 문서 %s, 빌더 %s"
-            % (cond["정의 문서"], cond["경고 기호"], spec, sources or "없음", cond["빌더"]))
+    return ("※ 수집 조건: 정의 문서 %s, CQ 문서 %s, 경고 기호 %s, 규격 검사 %s, 원천 구조 문서 %s, 빌더 %s"
+            % (cond["정의 문서"], cond["CQ 문서"] or NO_CQ, cond["경고 기호"], spec, sources or "없음", cond["빌더"]))
 
 
 # 수집 조건 줄의 원천 구조 문서 한 건. 경로에 '; ' 가 들어도 끝의 해시로 가른다.
 SOURCE_RE = re.compile(r"(.+?) ([0-9a-f]{12}|%s)(?=; |$)" % re.escape(NOT_TEXT))
 CONDITION_RE = re.compile(
-    r"※ 수집 조건: 정의 문서 (?P<doc>[0-9a-f]{12}), 경고 기호 (?P<mark>.+?), "
+    r"※ 수집 조건: 정의 문서 (?P<doc>[0-9a-f]{12}), (?:CQ 문서 (?P<cq>[0-9a-f]{12}|%s), )?경고 기호 (?P<mark>.+?), "
     r"규격 검사 (?:수행\(converter (?P<conv>[0-9a-f]{12})\)|(?P<skip>미수행)), "
-    r"원천 구조 문서 (?P<src>.+?), 빌더 (?P<builder>[0-9a-f]{12})")
+    r"원천 구조 문서 (?P<src>.+?), 빌더 (?P<builder>[0-9a-f]{12})" % re.escape(NO_CQ))
 
 
 def parse_condition(line):
-    """수집 조건 줄을 칸별 값으로 푼다. condition_line() 의 반대. 꼴이 다르면 None."""
+    """수집 조건 줄을 칸별 값으로 푼다. condition_line() 의 반대. 꼴이 다르면 None.
+
+    CQ 문서 칸이 없는 옛 줄(0.2.0)도 푼다. 그때 CQ 문서 값은 OLD_CQ 다. 'CQ 문서 없음' 이면 None 이다.
+    """
     m = CONDITION_RE.fullmatch((line or "").strip())
     if not m:
         return None
@@ -496,7 +524,9 @@ def parse_condition(line):
             return None
         sources.append({"경로": part.group(1), "해시": None if part.group(2) == NOT_TEXT else part.group(2)})
         pos = part.end() + (2 if text.startswith("; ", part.end()) else 0)
-    return {"정의 문서": m.group("doc"), "경고 기호": m.group("mark"),
+    cq = m.group("cq")
+    return {"정의 문서": m.group("doc"), "CQ 문서": OLD_CQ if cq is None else None if cq == NO_CQ else cq,
+            "경고 기호": m.group("mark"),
             "규격 검사": "미수행" if m.group("skip") else "수행", "converter": m.group("conv"),
             "원천 구조 문서": sources, "빌더": m.group("builder")}
 
@@ -759,8 +789,10 @@ def overlap(idx, doc, cnv, spc):
 
 # ── 수집 ─────────────────────────────────────────────────────────────────────
 
-def condition(definition, converter=None, spec_skipped=False, warn_mark=None, sources=()):
+def condition(definition, converter=None, spec_skipped=False, warn_mark=None, sources=(), cq=()):
     """하위 스크립트를 수행하지 않고 수집 조건을 만든다. 옵션이 맞지 않거나 파일을 읽지 못하면 CollectError.
+
+    cq 는 CQ 문서 파일이다. 줄 수 있을 때만 준다(CQ를 문장으로 받았으면 파일이 없다).
 
     판정 스크립트가 다시 수집하기 전에 검증 리포트의 수집 조건 줄과 맞대 본다. 수집 뒤 정의 문서가 바뀌어
     다시 수집이 실패해도 '정의 문서가 바뀜' 으로 알리기 위해서다.
@@ -777,19 +809,19 @@ def condition(definition, converter=None, spec_skipped=False, warn_mark=None, so
         di.read_text(definition)
     except di.ReadError as e:
         raise CollectError("정의 문서를 읽지 못함: %s (%s)" % (e.path, e.problem))
-    cond = {"정의 문서": file_hash(definition), "경고 기호": mark,
+    cond = {"정의 문서": file_hash(definition), "CQ 문서": cq_hash(cq), "경고 기호": mark,
             "규격 검사": "수행" if scripts else "미수행",
             "converter": version_hash(scripts) if scripts else None,
             "원천 구조 문서": read_sources(sources), "빌더": version_hash(BUILDER_FILES)}
     return dict(cond, 줄=condition_line(cond))
 
 
-def collect(definition, converter=None, spec_skipped=False, warn_mark=None, sources=()):
+def collect(definition, converter=None, spec_skipped=False, warn_mark=None, sources=(), cq=()):
     """스크립트 검사를 수행해 수집 결과를 만든다. 멈출 까닭이 있으면 CollectError(또는 MismatchError).
 
     판정 스크립트가 모듈로 불러 다시 수행할 때도 쓴다. 결과는 main() 의 --json 출력과 같은 dict 다.
     """
-    cond = condition(definition, converter, spec_skipped, warn_mark, sources)
+    cond = condition(definition, converter, spec_skipped, warn_mark, sources, cq)
     try:
         rules = rc.load()
     except rc.RuleError as e:
@@ -946,12 +978,14 @@ def main():
                     help="가이드가 정한 경고 기호 (기본 %s). 정의 문서 검사기에 넘긴다" % MARK)
     ap.add_argument("--source", nargs="+", default=[], metavar="파일",
                     help="원천 구조 문서. 주면 데이터 구조 이름을 대조한다(DOC-08)")
+    ap.add_argument("--cq", nargs="+", default=[], metavar="파일",
+                    help="CQ 문서. 주면 수집 조건 줄에 바이트 해시를 남긴다. CQ를 파일 없이 받았으면 주지 않는다")
     ap.add_argument("--json", action="store_true", help="판정 스크립트가 읽는 JSON 으로 낸다")
     args = ap.parse_args()
 
     try:
         result = collect(args.definition, converter=args.converter, spec_skipped=args.spec_skipped,
-                         warn_mark=args.warn_mark, sources=args.source)
+                         warn_mark=args.warn_mark, sources=args.source, cq=args.cq)
     except Exception as e:      # 예상하지 못한 오류도 종료 코드 2 로 멈춘다. 1 은 쓰지 않는 값이다
         mismatch = isinstance(e, MismatchError) or not isinstance(e, CollectError)
         why = str(e) if isinstance(e, CollectError) else "수집 스크립트가 예상하지 못한 오류로 멈춤(%s: %s)" % (
