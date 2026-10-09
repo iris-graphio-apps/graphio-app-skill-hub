@@ -7,7 +7,7 @@
     python3 judge_structure.py <온톨로지-정의.md> <온톨로지-검증-리포트.md> \\
         --converter <converter 스킬 폴더> --required-grade 필수 --manual-checked -o <구조-판정.md>
 
-등급은 references/검사-규칙.md 에 규칙마다 정해져 있다. 검증 리포트 4.2절 지적 목록의 행, 5절 CQ별 판정,
+등급은 references/rule-catalog.md 에 규칙마다 정해져 있다. 검증 리포트 4.2절 지적 목록의 행, 5절 CQ별 판정,
 6절 매핑 컬럼 대조, 2절 필수 CQ 기준에서 지적을 모아 규칙의 등급을 붙인다. 5·6절에는 규칙 번호를 적지
 않는다. 판정값과 필수 여부로 이 스크립트가 CQS-01~04·MAP-01~04 를 정하고, 2절 필수 CQ 기준을 스킬이
 정했으면 CQS-06 을 올린다.
@@ -38,7 +38,7 @@ CQ 문서가 CQ에 등급을 매겼으면 어느 말을 필수로 볼지 --requi
 입력을 읽지 못하거나 맞지 않으면 판정 문서를 쓰지 않고 멈춘다. 읽지 못한 채 판정하면 Error가 빠진
 문서가 「확정 가능」 으로 나가기 때문이다. 종료 코드: 0 확정 가능, 1 확정 불가, 2 판정하지 않음.
 
-문서의 꼴과 문체는 references/리포트-작성-규칙.md 를 따른다.
+문서의 꼴과 문체는 references/report-conventions.md 를 따른다.
 """
 import argparse
 import datetime
@@ -52,7 +52,7 @@ import rule_catalog as rc
 
 NONE = "해당 없음"
 
-# 판정값. 리포트-작성-규칙.md 4장이 정한 닫힌 목록이라 여기서 늘리지 않는다.
+# 판정값. report-conventions.md 4장이 정한 닫힌 목록이라 여기서 늘리지 않는다.
 CQ_VERDICTS = ("응답 가능", "부분 응답", "응답 불가")
 MAP_VERDICTS = ("일치", "대체 매핑", "의미 불일치 미매핑", "원천 부재 미매핑", "원천 확인 필요 미매핑")
 # 5절·6절 판정값으로 정하는 규칙. (필수 여부, 판정값) 과 판정값이 열쇠다.
@@ -524,7 +524,7 @@ def cq_findings(args, lines, heads, idx, rules):
     bad = ["%s: '%s'" % (cell(r, qi) or "(CQ 이름 없음)", cell(r, vi)) for r in rows if cell(r, vi) not in CQ_VERDICTS]
     if bad:
         raise InputError("검증 리포트 5절 판정값이 정해진 값(%s)이 아님: %s" % ("·".join(CQ_VERDICTS), ", ".join(bad)),
-                         "검증 리포트 5절. 말은 리포트-작성-규칙.md 4장")
+                         "검증 리포트 5절. 말은 report-conventions.md 4장")
     present = {norm(cell(r, gi)) for r in rows} if gi is not None else set()
     basis = required_basis(lines, heads, args.required_grade, present)
 
@@ -604,7 +604,7 @@ def map_findings(lines, heads, idx, rules):
     bad = ["%s: '%s'" % (cell(r, ki) or "(값 이름 없음)", cell(r, vi)) for r in rows if cell(r, vi) not in MAP_VERDICTS]
     if bad:
         raise InputError("검증 리포트 6절 판정값이 정해진 값(%s)이 아님: %s" % ("·".join(MAP_VERDICTS), ", ".join(bad)),
-                         "검증 리포트 6절. 말은 리포트-작성-규칙.md 4장")
+                         "검증 리포트 6절. 말은 report-conventions.md 4장")
     out, counts = [], {"판정별": {}}     # 판정별은 2절 '매핑 컬럼 대조' 칸을 다시 셀 때 쓴다
     for r in rows:
         verdict = cell(r, vi)
@@ -982,7 +982,7 @@ def excerpt(route):
 
 
 def match_key(f):
-    """앞 판정과 이번 판정의 지적을 맞대는 열쇠(구조-판정-서식.md '앞 판정 대조'). 줄 번호는 넣지 않는다."""
+    """앞 판정과 이번 판정의 지적을 맞대는 열쇠(structure-judgment-format.md '앞 판정 대조'). 줄 번호는 넣지 않는다."""
     rule, route = f["규칙"], f.get("발생 경로", "")
     if rule in CQ_OF:
         first = di.split_locations(f["위치"])[0]

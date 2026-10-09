@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""검사 규칙 목록 문서(references/검사-규칙.md)를 읽고 확인한다.
+"""검사 규칙 목록 문서(references/rule-catalog.md)를 읽고 확인한다.
 
 수집 스크립트와 판정 스크립트가 함께 쓴다. 2절 규칙 목록 표와 3절 규칙 설명 표만 읽는다.
 두 절에는 표가 하나씩 있고, 머리글은 LIST_HEAD·DESC_HEAD 와 같아야 하며 칸 안에 세로줄이 없다.
 문서 첫머리가 정한 확인 여섯 가지 가운데 하나라도 어긋나면 RuleError 를 낸다.
 
     import rule_catalog as rc      # 스크립트 폴더가 sys.path[0] 이라 그대로 읽힌다
-    rules = rc.load()              # 스크립트 폴더 기준 ../references/검사-규칙.md
+    rules = rc.load()              # 스크립트 폴더 기준 ../references/rule-catalog.md
     rules.get("DOC-04")["등급"]    # 두 표의 칸을 합친 dict
     rules.order("SPC-01")          # 2절 표 차례(0부터). '규칙 번호 차례'는 이 차례다
     rules.skill_rules()            # 스킬이 검증 리포트 4.2절에 적는 규칙
@@ -22,7 +22,7 @@ import re
 from definition_index import split_row
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_PATH = os.path.normpath(os.path.join(HERE, "..", "references", "검사-규칙.md"))
+DEFAULT_PATH = os.path.normpath(os.path.join(HERE, "..", "references", "rule-catalog.md"))
 
 # 스킬 판본. 설치된 스킬은 저장소의 registry.json 을 읽지 못하므로 스킬 폴더 안 이 한 곳에 둔다.
 # registry.json 의 version 과 같아야 한다(작업 폴더 precommit_check.py 가 맞대 본다).

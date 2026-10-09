@@ -17,7 +17,7 @@
 
     python3 check_design_doc.py <문서.md> --source <원천 구조 문서> [...]
 
-지적마다 규칙 번호(DOC-01~09, DOC-11)를 붙인다. 규칙의 이름과 등급은 references/검사-규칙.md 에 있다.
+지적마다 규칙 번호(DOC-01~09, DOC-11)를 붙인다. 규칙의 이름과 등급은 references/rule-catalog.md 에 있다.
 '확인 필요' 표기(DOC-10)는 건수만 세는 규칙이라 지적으로 내지 않고 --stats 통계로 낸다.
 지적은 규칙 번호, 줄 번호, 발췌 차례로 낸다. 같은 입력이면 늘 같은 출력이다.
 
@@ -31,7 +31,7 @@
               DOC-05 '읽히지 않는 설명'은 문제가 된 줄 자체다
     발췌      문제를 보이는 원문 조각. 발생 경로로 쓴다. 발췌 줄은 그 조각이 있는 줄이다
     등급·자리·무엇·어떻게·종류   앞 판의 칸. 앞 판과 맞추려고 한동안 둔다. 등급 값도 앞 판의 오류·경고·확인이다.
-              스킬 스크립트는 이 칸들을 읽지 않는다. 등급은 규칙 번호로 references/검사-규칙.md 에서 찾는다
+              스킬 스크립트는 이 칸들을 읽지 않는다. 등급은 규칙 번호로 references/rule-catalog.md 에서 찾는다
 
 문서를 읽지 못하면 --json 은 {"읽힘": false, "까닭", "문서", "경로", "문제"} 를 낸다.
 문서는 '정의 문서'·'원천 구조 문서', 문제는 '파일 없음'·'UTF-8로 읽을 수 없음'·'읽기 실패'·'개념 없음'
@@ -324,7 +324,7 @@ def check(lines, blocks, idx, mark, source):
     #      2개 이상이면 반입이 막힌다. 둘 다 문서가 만들어진 뒤에 드러난다.
     #      2건 이상이면 표시한 속성 이름을, 0건이면 머리글을 발췌한다.
     #      변환 스크립트처럼 첫 표만 보고 머리글 별칭과 참 값을 가린다(색인의 title_rows). 규격 검사기의
-    #      GOS61006·61007 과 같은 결함으로 합치므로(검사-규칙.md 4절) 두 쪽이 같게 세어야 한다.
+    #      GOS61006·61007 과 같은 결함으로 합치므로(rule-catalog.md 4절) 두 쪽이 같게 세어야 한다.
     for b in blocks:
         c = idx.element_at(b["line"])
         marked = idx.title_rows(c) if c is not None and c.kind == "개념" else None
@@ -345,7 +345,7 @@ def check(lines, blocks, idx, mark, source):
     #      설명으로 읽는다(색인의 desc). 표나 소제목 뒤의 설명 줄과 '- desc:' 줄은 오류 없이 정의 파일에 옮기지 않아
     #      변환된 개념에 설명이 없다. 이때는 이 검사기가 설명으로 본 줄(여럿이면 마지막 줄)로 짚는다.
     #      다만 DOC-11 소제목 뒤 표가 있는 블록에서 그 소제목을 지우면 설명도 읽히면 DOC-11 행만 낸다
-    #      (검사-규칙.md 4절). 한 결함(소제목)을 두 건으로 세지 않기 위해서다.
+    #      (rule-catalog.md 4절). 한 결함(소제목)을 두 건으로 세지 않기 위해서다.
     unread = idx.unread_tables()
     headed = {id(el) for _, case, el in unread if case == "소제목 뒤 표" and el is not None}
     for b in blocks:
