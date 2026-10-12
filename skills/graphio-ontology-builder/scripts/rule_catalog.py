@@ -26,7 +26,7 @@ DEFAULT_PATH = os.path.normpath(os.path.join(HERE, "..", "references", "rule-cat
 
 # 스킬 판본. 설치된 스킬은 저장소의 registry.json 을 읽지 못하므로 스킬 폴더 안 이 한 곳에 둔다.
 # registry.json 의 version 과 같아야 한다(작업 폴더 precommit_check.py 가 맞대 본다).
-SKILL_VERSION = "0.3.0"
+SKILL_VERSION = "0.4.0"
 VERSION_RE = re.compile(r"\d+\.\d+\.\d+")
 
 LIST_HEAD = ("규칙", "이름", "등급", "탐지 방식", "외부 코드", "상태", "바뀐 판본")
@@ -37,9 +37,9 @@ STATES = ("사용", "사용하지 않음")
 # 나머지 '사용' 규칙은 스킬이 검증 리포트 4.2절에 적는다(skill_rules).
 # COLLECTED 는 수집 스크립트가 4.2절 스크립트 행으로 내는 규칙, JUDGED 는 판정 스크립트가 5·6절과
 # 2절에서 정하는 규칙이다. 4.2절에 JUDGED 규칙이 있으면 판정 스크립트가 멈춘다.
-COLLECTED = (tuple("DOC-%02d" % n for n in range(1, 12)) + ("CNV-01",)
+COLLECTED = (tuple("DOC-%02d" % n for n in range(1, 16)) + ("CNV-01",)
              + tuple("SPC-%02d" % n for n in range(1, 4)))
-JUDGED = ("CQS-01", "CQS-02", "CQS-03", "CQS-04", "CQS-06") + tuple("MAP-%02d" % n for n in range(1, 5))
+JUDGED = ("CQS-01", "CQS-02", "CQS-03", "CQS-04", "CQS-06", "CQS-07", "CQS-08", "MAP-01")
 SCRIPT_RULES = COLLECTED + JUDGED
 RULE_RE = re.compile(r"[A-Z]{3}-\d{2}")
 

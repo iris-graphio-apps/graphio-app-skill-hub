@@ -54,15 +54,17 @@ NONE = "해당 없음"
 
 # 판정값. report-conventions.md 4장이 정한 닫힌 목록이라 여기서 늘리지 않는다.
 CQ_VERDICTS = ("응답 가능", "부분 응답", "응답 불가")
-MAP_VERDICTS = ("일치", "대체 매핑", "의미 불일치 미매핑", "원천 부재 미매핑", "원천 확인 필요 미매핑")
+MAP_VERDICTS = ("일치", "대체 매핑")
+CQ_REASONS = ("해당 없음", "설계 누락", "원천 선택 미채택", "원천 확인 필요", "원천 부재", "규격 제약")
+OLD_MAP_VERDICTS = ("의미 불일치 미매핑", "원천 부재 미매핑", "원천 확인 필요 미매핑")   # 0.3.0 이하 6절 판정값. 나오면 재생성 안내로 멈춤
 # 5절·6절 판정값으로 정하는 규칙. (필수 여부, 판정값) 과 판정값이 열쇠다.
 CQ_RULE = {(True, "응답 불가"): "CQS-01", (True, "부분 응답"): "CQS-02",
            (False, "응답 불가"): "CQS-03", (False, "부분 응답"): "CQS-04"}
-MAP_RULE = {"대체 매핑": "MAP-01", "의미 불일치 미매핑": "MAP-02",
-            "원천 부재 미매핑": "MAP-03", "원천 확인 필요 미매핑": "MAP-04"}
+MAP_RULE = {"대체 매핑": "MAP-01"}
+OUTSIDE_RULE = {True: "CQS-07", False: "CQS-08"}
 # 스크립트 규칙을 가르는 기준은 rule_catalog 의 COLLECTED(수집 스크립트가 4.2절에 내는 규칙)와
 # JUDGED(이 스크립트가 5·6절과 2절에서 정하는 규칙, 4.2절에 있으면 멈춤) 하나다. 접두어로 가르지 않는다.
-assert set(CQ_RULE.values()) | {"CQS-06"} | set(MAP_RULE.values()) == set(rc.JUDGED)
+assert set(CQ_RULE.values()) | {"CQS-06"} | set(OUTSIDE_RULE.values()) | set(MAP_RULE.values()) == set(rc.JUDGED)
 
 # 4.1 No.3~6 의 검사 이름과 결과값. No.1·No.2 는 수집 스크립트가 낸 값과 맞대 본다.
 CHECKS = {"3": "가이드 준수 검사", "4": "CQ-구조 정합성 검사", "5": "CQ 통과 조건 검사", "6": "매핑 의미 검사"}
@@ -80,14 +82,14 @@ SKILL_DECIDED = ("스킬 판단", "전체 CQ")
 ALL_CQ = "전체 CQ(필수 등급 판별 불가)"
 
 # 검증 리포트 문서 정보 표에서 판정 문서로 옮기는 행
-CARRY_OVER = ("설계 리포트", "CQ 문서", "원천 구조 문서", "스타일 가이드", "서식 가이드")
+CARRY_OVER = ("설계 리포트", "CQ 문서", "원천 구조 문서", "스타일 가이드", "서식 가이드", "자료 등급")
 
 # 지적이 적힌 검증 리포트의 자리. 출처 차례가 묶음 차례를 정한다.
 SOURCE = {"4.2": (0, "검증 리포트 4.2절"), "5": (1, "검증 리포트 5절"), "6": (2, "검증 리포트 6절"),
           "2": (3, "검증 리포트 2절(검증 결과 요약) 필수 CQ 기준")}
 WHERE_42 = "검증 리포트 4.2절(지적 목록)"
 WHERE_3 = "검증 리포트 3절(산출 규모)"
-WHERE_6 = "검증 리포트 6절(매핑 컬럼 대조 결과)"
+WHERE_51 = "검증 리포트 5.1절(CQ별 판정표)"
 
 
 class InputError(Exception):
@@ -505,8 +507,8 @@ def required_basis(lines, heads, grades, present):
 
 
 def cq_findings(args, lines, heads, idx, rules):
-    """5절 CQ별 판정에서 CQS-01~04 지적을 만든다. (지적, {전체, 집계, 기준}). 기준은 필수 CQ 기준이다."""
-    span = find_section(heads, ("CQ별", "판정"))
+    """5절 CQ별 판정에서 CQS-01~04 지적을 만든다. (지적, {전체, 집계, 기준, 사유}). 기준은 필수 CQ 기준이다."""
+    span = find_section(heads, ("CQ별", "판정표"), ("CQ별", "판정"))
     if span is None:
         raise InputError("검증 리포트 5절(CQ별 판정)을 찾지 못함", "검증 리포트 5절")
     found = only_table(lines, span, "검증 리포트 5절")
@@ -518,6 +520,7 @@ def cq_findings(args, lines, heads, idx, rules):
     if not rows:
         raise InputError("검증 리포트 5절 표에 행이 없음", "검증 리포트 5절")
     ni, qi, vi, mi, wi, bi, fi = need(head, "검증 리포트 5절", "No.", "CQ", "판정", "누락 항목", "위치", "근거", "조치 방안")
+    ri = column(head, "미응답 사유")
     gi = column(head, "등급")
     if args.required_grade and gi is None:
         raise InputError("--required-grade 를 받았으나 검증 리포트 5절 표에 '등급' 열이 없음", "옵션 또는 검증 리포트 5절")
@@ -525,11 +528,26 @@ def cq_findings(args, lines, heads, idx, rules):
     if bad:
         raise InputError("검증 리포트 5절 판정값이 정해진 값(%s)이 아님: %s" % ("·".join(CQ_VERDICTS), ", ".join(bad)),
                          "검증 리포트 5절. 말은 report-conventions.md 4장")
+    if ri is not None:      # 미응답 사유 칸이 없는 옛 5절은 이 확인을 건너뛴다
+        bad = []
+        for r in rows:
+            words = re.split(r"\s*·\s*", cell(r, ri))
+            if cell(r, vi) == "응답 가능":     # 응답 가능 행은 '해당 없음' 하나뿐
+                wrong = words != [NONE]
+            else:                               # 아닌 행은 닫힌 값만 쓰고 '해당 없음'이 없음
+                wrong = NONE in words or any(w not in CQ_REASONS for w in words)
+            if wrong:
+                bad.append("%s: '%s'" % (cell(r, qi) or "(CQ 이름 없음)", cell(r, ri)))
+        if bad:
+            raise InputError("검증 리포트 5.1절 미응답 사유가 정해진 값(%s)이 아님: %s" % ("·".join(CQ_REASONS), ", ".join(bad)),
+                             "검증 리포트 5.1절. 말은 report-conventions.md 4장")
     present = {norm(cell(r, gi)) for r in rows} if gi is not None else set()
     basis = required_basis(lines, heads, args.required_grade, present)
 
     required = {norm(g) for g in args.required_grade}
     out, tally = [], {}
+    req_reasons = []      # 필수 CQ 가운데 응답 가능이 아닌 CQ의 미응답 사유 집합. 2절 '원천 근거 기준 필수 CQ 응답'을 다시 셀 때 쓴다
+    asked = []      # 5.2절 요약표와 맞댈 5.1절 행. (CQ, 판정, 미응답 사유, 규칙)
     for r in rows:
         name, verdict = cell(r, qi) or "(CQ 이름 없음)", cell(r, vi)
         is_req = (not required) or (norm(cell(r, gi)) in required)
@@ -544,20 +562,82 @@ def cq_findings(args, lines, heads, idx, rules):
             continue
         if norm(location) in ("", norm(NONE)) or norm(fix) in ("", norm(NONE)):
             raise InputError("%s 판정이 %s인데 위치나 조치 방안이 비어 있음" % (where, verdict), "검증 리포트 5절")
-        rule = CQ_RULE[(is_req, verdict)]
+        reasons = set(re.split(r"\s*·\s*", cell(r, ri))) if ri is not None else {"설계 누락"}
+        if is_req:
+            req_reasons.append(reasons)
+        rule = CQ_RULE[(is_req, verdict)] if "설계 누락" in reasons else OUTSIDE_RULE[is_req]
+        asked.append((cell(r, qi), verdict, cell(r, ri), rule))
         gap = cell(r, mi)
         located = place(idx, location, where, cq=True)
         # 위치가 이미 'CQ 번호' 로 시작하므로 CQ 칸 앞의 같은 번호는 되풀이하지 않는다.
         # CQ 문장은 작은따옴표로 가려 판정값과 이어 읽히지 않게 한다
         cq_no = di.parse_location(di.split_locations(located)[0])[1]["number"]
         text = re.sub(r"^%s(?![\w-])[\s.:：)\]-]*" % re.escape(cq_no), "", name).strip() or name
-        problem = "'%s' %s%s. %s" % (text, verdict,
-                                     "(누락 항목: %s)" % gap if norm(gap) not in ("", norm(NONE)) else "",
-                                     "필수 CQ라 확정을 막음" if is_req else "필수 CQ가 아니므로 확정을 막지 않음")
+        parts = []
+        if norm(gap) not in ("", norm(NONE)):
+            parts.append("누락 항목: %s" % gap)
+        if rule in OUTSIDE_RULE.values() and cell(r, ri):
+            parts.append("미응답 사유: %s" % cell(r, ri))
+        paren = "(%s)" % "; ".join(parts) if parts else ""
+        problem = "'%s' %s%s. %s" % (text, verdict, paren,
+                                     "정의 문서를 고쳐서는 풀리지 않는 설계 밖 사유라 확정을 막지 않음"
+                                     if rule in OUTSIDE_RULE.values()
+                                     else ("필수 CQ라 확정을 막음" if is_req else "필수 CQ가 아니므로 확정을 막지 않음"))
         base = rules.get(rule)
         out.append(finding(rule, NONE, located, problem, cell(r, bi), fix,
                            base["기본 조치 주체"], base["기본 참고 자료"], "5", row_number(r, ni, where)))
-    return out, {"전체": len(rows), "집계": tally, "기준": basis}
+    if ri is not None:      # 미응답 사유 칸이 없는 옛 5절이면 5.2절 요약표를 맞대지 않는다
+        outside_summary(lines, heads, asked)
+    counted = {"전체": len(rows), "집계": tally, "기준": basis}
+    if ri is not None:      # 미응답 사유 칸이 없는 옛 5절이면 '사유' 열쇠를 두지 않는다
+        counted["사유"] = req_reasons
+    return out, counted
+
+
+def outside_summary(lines, heads, asked):
+    """검증 리포트 5.2절(응답 불가 CQ 보고) 요약표를 5.1절과 맞대 본다. 어긋나면 멈춘다.
+
+    asked 는 5.1절에서 응답 가능이 아닌 행의 [(CQ, 판정, 미응답 사유, 규칙)] 이고, 규칙은 cq_findings() 가
+    필수 여부와 미응답 사유로 정한 것이다. 요약표는 '규칙'·'미응답 사유'·'풀 방법' 열이 모두 있는 첫 표다.
+    pick_table() 은 넘긴 열 가운데 하나만 있는 표도 돌려주므로 쓰지 않는다.
+    응답 가능이 아닌 CQ가 0건이면 5.2절이나 요약표가 없어도(「해당 없음」 한 줄) 지나간다.
+    """
+    span = find_section(heads, ("응답 불가", "CQ 보고"))
+    summary = (None, None)
+    if span is not None:
+        summary = next(((h, rs) for h, rs in tables(lines, span)
+                        if all(column(h, c) is not None for c in ("규칙", "미응답 사유", "풀 방법"))), (None, None))
+    head, rows = summary
+    if head is None:
+        if asked:
+            raise InputError("검증 리포트 5.2절(응답 불가 CQ 보고)에 요약표가 없음. 5.1절에서 응답 가능이 아닌 CQ가 %d건임"
+                             % len(asked), "검증 리포트 5.2절. 요약표에는 '규칙'·'미응답 사유'·'풀 방법' 열을 모두 둠")
+        return
+    qi, vi, ri, ki = need(head, "검증 리포트 5.2절", "CQ", "판정", "미응답 사유", "규칙")
+    want = {norm(a[0]): a for a in asked}
+    seen, extra = set(), []
+    for r in rows:
+        key = norm(cell(r, qi))
+        if key in want and key not in seen:
+            seen.add(key)
+        else:
+            extra.append(cell(r, qi) or "(CQ 이름 없음)")
+    lack = [a[0] or "(CQ 이름 없음)" for key, a in want.items() if key not in seen]
+    if lack or extra:
+        raise InputError("검증 리포트 5.2절 요약표 CQ가 5.1절에서 응답 가능이 아닌 CQ와 맞지 않음(빠진 CQ: %s, 남거나 겹친 CQ: %s)"
+                         % (", ".join(lack) or "없음", ", ".join(extra) or "없음"), "검증 리포트 5.2절")
+    for r in rows:
+        _, verdict, reason, rule = want[norm(cell(r, qi))]
+        name = cell(r, qi)
+        if cell(r, vi) != verdict:
+            raise InputError("검증 리포트 5.2절 요약표 %s의 %s 칸이 5.1절과 다름(요약표 '%s', 5.1절 '%s')"
+                             % (name, "판정", cell(r, vi), verdict), "검증 리포트 5.2절")
+        if set(re.split(r"\s*·\s*", cell(r, ri))) != set(re.split(r"\s*·\s*", reason)):
+            raise InputError("검증 리포트 5.2절 요약표 %s의 %s 칸이 5.1절과 다름(요약표 '%s', 5.1절 '%s')"
+                             % (name, "미응답 사유", cell(r, ri), reason), "검증 리포트 5.2절")
+        if cell(r, ki) != rule:
+            raise InputError("검증 리포트 5.2절 요약표 %s의 규칙이 5.1절의 필수 여부와 미응답 사유로 정한 규칙과 다름"
+                             "(요약표 '%s', 판정 스크립트 '%s')" % (name, cell(r, ki), rule), "검증 리포트 5.2절")
 
 
 def target_of(text):
@@ -588,7 +668,7 @@ def mapped_rows(idx, concept, prop, structure, col):
 
 
 def map_findings(lines, heads, idx, rules):
-    """6절 매핑 컬럼 대조에서 MAP-01 지적과 MAP-02~04 건수를 만든다. 표가 없으면 (None, None, 미수행 사유)."""
+    """6절 매핑 컬럼 대조에서 MAP-01 지적과 판정값별 건수를 만든다. 표가 없으면 (None, None, 미수행 사유)."""
     span = find_section(heads, ("매핑", "대조"))
     if span is None:
         raise InputError("검증 리포트 6절(매핑 컬럼 대조 결과)을 찾지 못함", "검증 리포트 6절")
@@ -601,6 +681,10 @@ def map_findings(lines, heads, idx, rules):
         return None, None, why or "검증 리포트 6절 표에 행 없음"
     ni, ki, pi, ci, vi, bi, fi = need(head, "검증 리포트 6절", "No.", "값", "대상 속성", "매핑 컬럼", "판정",
                                       "판정 근거", "조치 방안")
+    old = sorted({cell(r, vi) for r in rows if cell(r, vi) in OLD_MAP_VERDICTS})
+    if old:
+        raise InputError("검증 리포트 6절에 0.3.0 이하 판정값이 있음: %s. 0.3.0 이하 산출물이라 0.4.0 판정 전에 재생성 필요"
+                         % ", ".join(old), "검증 리포트 6절. 산출물을 0.4.0으로 다시 만듦")
     bad = ["%s: '%s'" % (cell(r, ki) or "(값 이름 없음)", cell(r, vi)) for r in rows if cell(r, vi) not in MAP_VERDICTS]
     if bad:
         raise InputError("검증 리포트 6절 판정값이 정해진 값(%s)이 아님: %s" % ("·".join(MAP_VERDICTS), ", ".join(bad)),
@@ -619,48 +703,41 @@ def map_findings(lines, heads, idx, rules):
             if not idx.find_properties(concept, prop):
                 raise InputError("%s 대상 속성을 정의 문서에서 찾지 못함: %s · %s%s"
                                  % (where, concept, prop, comma_hint(cell(r, pi))), "검증 리포트 6절 또는 정의 문서")
-        if verdict in ("일치", "대체 매핑"):
-            columns = [c for c in re.split(r",\s*", cell(r, ci)) if c.strip()]
-            if len(columns) != len(parsed):
-                raise InputError("%s 대상 속성과 매핑 컬럼의 수가 다름(대상 속성 %d건, 매핑 컬럼 %d건)"
-                                 % (where, len(parsed), len(columns)), "검증 리포트 6절")
-            if verdict == "대체 매핑" and len(parsed) > 1:
-                raise InputError("%s 대체 매핑 행에 조인 쌍 두 쪽을 함께 적음. 쪽마다 한 행으로 나눔" % where,
+        columns = [c for c in re.split(r",\s*", cell(r, ci)) if c.strip()]
+        if len(columns) != len(parsed):
+            raise InputError("%s 대상 속성과 매핑 컬럼의 수가 다름(대상 속성 %d건, 매핑 컬럼 %d건)"
+                             % (where, len(parsed), len(columns)), "검증 리포트 6절")
+        if verdict == "대체 매핑" and len(parsed) > 1:
+            raise InputError("%s 대체 매핑 행에 조인 쌍 두 쪽을 함께 적음. 쪽마다 한 행으로 나눔" % where,
+                             "검증 리포트 6절")
+        found = []
+        for (concept, prop), col in zip(parsed, columns):
+            split = column_of(col)
+            if split is None:
+                raise InputError("%s 매핑 컬럼이 '데이터 구조.컬럼' 꼴이 아님: %s%s" % (where, col, comma_hint(cell(r, ci))),
                                  "검증 리포트 6절")
-            found = []
-            for (concept, prop), col in zip(parsed, columns):
-                split = column_of(col)
-                if split is None:
-                    raise InputError("%s 매핑 컬럼이 '데이터 구조.컬럼' 꼴이 아님: %s%s" % (where, col, comma_hint(cell(r, ci))),
-                                     "검증 리포트 6절")
-                hit = mapped_rows(idx, concept, prop, *split)
-                if not hit:
-                    actual = ["%s.%s" % (m.structure, x.column) for m in idx.find_mappings(concept=concept)
-                              for x in m.children if x.name == prop]
-                    raise InputError("%s 매핑 컬럼이 정의 문서의 매핑과 다름: %s · %s → %s(정의 문서: %s)%s"
-                                     % (where, concept, prop, col.replace("`", ""), ", ".join(actual) or "매핑 없음",
-                                        comma_hint(cell(r, ci))),
-                                     "검증 리포트 6절 또는 정의 문서")
-                found.append(hit[0])
-            if verdict == "대체 매핑":
-                if norm(cell(r, fi)) in ("", norm(NONE)):
-                    raise InputError("%s 판정이 대체 매핑인데 조치 방안이 비어 있음" % where, "검증 리포트 6절")
-                base = rules.get("MAP-01")
-                route = " → ".join((cell(r, ki), cell(r, pi), cell(r, ci), cell(r, bi)))
-                out.append(finding("MAP-01", NONE, found[0].location(), "뜻이 다른 컬럼이 매핑되어 질의 결과가 틀림",
-                                   route, cell(r, fi), base["기본 조치 주체"], base["기본 참고 자료"],
-                                   "6", row_number(r, ni, where)))
-        else:
-            for concept, prop in parsed:
-                if [x for m in idx.find_mappings(concept=concept) for x in m.children if x.name == prop]:
-                    raise InputError("%s 판정이 %s인데 정의 문서에 매핑이 있음: %s · %s" % (where, verdict, concept, prop),
-                                     "검증 리포트 6절 또는 정의 문서")
-            counts[MAP_RULE[verdict]] = counts.get(MAP_RULE[verdict], 0) + 1
+            hit = mapped_rows(idx, concept, prop, *split)
+            if not hit:
+                actual = ["%s.%s" % (m.structure, x.column) for m in idx.find_mappings(concept=concept)
+                          for x in m.children if x.name == prop]
+                raise InputError("%s 매핑 컬럼이 정의 문서의 매핑과 다름: %s · %s → %s(정의 문서: %s)%s"
+                                 % (where, concept, prop, col.replace("`", ""), ", ".join(actual) or "매핑 없음",
+                                    comma_hint(cell(r, ci))),
+                                 "검증 리포트 6절 또는 정의 문서")
+            found.append(hit[0])
+        if verdict == "대체 매핑":
+            if norm(cell(r, fi)) in ("", norm(NONE)):
+                raise InputError("%s 판정이 대체 매핑인데 조치 방안이 비어 있음" % where, "검증 리포트 6절")
+            base = rules.get("MAP-01")
+            route = " → ".join((cell(r, ki), cell(r, pi), cell(r, ci), cell(r, bi)))
+            out.append(finding("MAP-01", NONE, found[0].location(), "뜻이 다른 컬럼이 매핑되어 질의 결과가 틀림",
+                               route, cell(r, fi), base["기본 조치 주체"], base["기본 참고 자료"],
+                               "6", row_number(r, ni, where)))
     return out, counts, None
 
 
 # 2절에서 다시 세어 맞대 보는 항목. 필수 CQ 기준은 required_basis() 가, 구조 판정은 대조하지 않는다
-RECOUNTED = ("필수 CQ 응답", "필수 CQ 미응답", "검사 수행 결과", "지적 목록", "매핑 컬럼 대조")
+RECOUNTED = ("필수 CQ 응답", "필수 CQ 미응답", "검사 수행 결과", "지적 목록", "매핑 컬럼 대조", "원천 근거 기준 필수 CQ 응답")
 
 
 def summary_table(lines, heads):
@@ -674,8 +751,9 @@ def summary_table(lines, heads):
 def recount(lines, heads, results, res, listed, counted, map_counts):
     """스크립트가 셀 수 있는 손 집계를 다시 세어 맞대 본다. 다르면 멈춘다.
 
-    2절의 필수 CQ 응답·필수 CQ 미응답(5절), 검사 수행 결과(4.1), 지적 목록(4.2), 매핑 컬럼 대조(6절)와
-    4.1 No.3(4.2 GDE 행 수)·No.6(6절에서 일치가 아닌 행 수)이다. No.4·No.5는 스킬이 가르는 수라 보지 않는다.
+    2절의 필수 CQ 응답·필수 CQ 미응답(5절), 검사 수행 결과(4.1), 지적 목록(4.2), 매핑 컬럼 대조(6절),
+    원천 근거 기준 필수 CQ 응답(5.1절 미응답 사유)과 4.1 No.3(4.2 GDE 행 수)·No.6(6절에서 일치가 아닌 행 수)이다.
+    No.4·No.5는 스킬이 가르는 수라 보지 않는다.
     """
     tally = counted["집계"]
     req = {v: tally.get(("필수", v), 0) for v in CQ_VERDICTS}
@@ -699,9 +777,8 @@ def recount(lines, heads, results, res, listed, counted, map_counts):
     if verdicts is None:
         mapping = "미수행"
     else:
-        unmapped = sum(verdicts.get(v, 0) for v in MAP_VERDICTS[2:])
-        mapping = "%d건 중 일치 %d건, 미매핑 %d건, 대체 매핑 %d건" % (
-            sum(verdicts.values()), verdicts.get("일치", 0), unmapped, verdicts.get("대체 매핑", 0))
+        mapping = "%d건 중 일치 %d건, 대체 매핑 %d건" % (
+            sum(verdicts.values()), verdicts.get("일치", 0), verdicts.get("대체 매핑", 0))
     expected = {
         "필수 CQ 응답": "%d건 중 %d건 응답 가능(전체 CQ %d건)" % (sum(req.values()), req["응답 가능"], counted["전체"]),
         "필수 CQ 미응답": (NONE if not req["부분 응답"] and not req["응답 불가"]
@@ -711,6 +788,12 @@ def recount(lines, heads, results, res, listed, counted, map_counts):
                   else "%d건 중 스크립트 %d건, 스킬 %d건" % (len(listed), script, len(listed) - script)),
         "매핑 컬럼 대조": mapping,
     }
+    if "사유" in counted:      # 미응답 사유 칸이 없는 옛 5절이면 이 행을 다시 세지 않는다
+        src = ("원천 부재", "원천 확인 필요")
+        cut = sum(1 for s in counted["사유"] if s & set(src))      # 둘이 함께 든 CQ도 분모에서 한 번만 뺀다
+        expected["원천 근거 기준 필수 CQ 응답"] = "%d건 중 %d건 응답 가능(원천 부재 %d건, 원천 확인 필요 %d건 제외)" % (
+            sum(req.values()) - cut, req["응답 가능"],
+            sum(1 for s in counted["사유"] if src[0] in s), sum(1 for s in counted["사유"] if src[1] in s))
     gde = sum(1 for r in listed if r["규칙"] in ("GDE-01", "GDE-02"))
     non_match = None if verdicts is None else sum(v for k, v in verdicts.items() if k != "일치")
     for n, count, basis, idle in (("3", gde, "4.2절 GDE-01·02 행 수", ("통과", "미수행")),
@@ -728,6 +811,8 @@ def recount(lines, heads, results, res, listed, counted, map_counts):
                              % (n, value, "' 또는 '".join(want), basis), "검증 리포트 4.1절")
     written = summary_table(lines, heads)
     for key in RECOUNTED:
+        if key not in expected:
+            continue
         if key not in written:
             raise InputError("검증 리포트 2절에 '%s' 행이 없음" % key, "검증 리포트 2절")
         if norm(written[key]) != norm(expected[key]):
@@ -799,8 +884,8 @@ def judge(args, lines, rules):
             continue
         if rule == "DOC-10":
             n, where = res.get("통계", {}).get("확인 필요 표기", 0), WHERE_3
-        elif rule in MAP_RULE.values():
-            n, where = (map_counts or {}).get(rule, 0), WHERE_6
+        elif rule == "CQS-08":
+            n, where = sum(1 for f in cq if f["규칙"] == "CQS-08"), WHERE_51
         else:
             n, where = sum(1 for r in listed if r["규칙"] == rule), WHERE_42
         if n:
@@ -815,8 +900,9 @@ PREV_NONE = "앞 판정 없음"
 # 스킬 판본 행이 없는 앞 판정의 판본. 정적 분석기 꼴 판정은 0.2.0부터다
 OLDEST = "0.2.0"
 CLASSES = ("해소", "유지", "신규", "기준 변경", "확인 불가")
-# CQS-01~04 의 (필수 여부, 판정값). 대조에서 필수 여부가 같은지 가른다
+# CQS-01~04·07·08 의 (필수 여부, 판정값 또는 설계 밖 사유). 대조에서 필수 여부가 같은지 가른다
 CQ_OF = {rule: key for key, rule in CQ_RULE.items()}
+CQ_OF.update({"CQS-07": (True, "설계 밖 사유"), "CQS-08": (False, "설계 밖 사유")})
 # 줄 단위 규칙. 줄 번호 대신 발생 경로의 원문 발췌로 가른다
 LINE_RULES = ("DOC-01", "DOC-02", "DOC-03", "DOC-11")
 SUMMARY_HEAD = ("No.", "규칙", "위치", "문제 설명")
@@ -949,7 +1035,7 @@ def check_of(rule, skipped):
         both = (CHECKS["4"], CHECKS["5"])
         return "·".join(both) if all(c in skipped for c in both) else None
     names = {"DOC-08": SRC_CHECK, "GDE-01": CHECKS["3"], "GDE-02": CHECKS["3"], "CQS-01": CHECKS["4"],
-             "CQS-03": CHECKS["4"], "CQS-05": CHECKS["4"], "INP-01": INP_CHECK}
+             "CQS-03": CHECKS["4"], "CQS-05": CHECKS["4"], "CQS-07": CHECKS["4"], "CQS-08": CHECKS["4"], "INP-01": INP_CHECK}
     name = names.get(rule) or (SPEC_CHECK if rule.startswith("SPC-") else MAP_CHECK if rule.startswith("MAP-") else None)
     return name if name in skipped else None
 
@@ -1016,6 +1102,14 @@ def code_key(text):
     return tuple(sorted(c.strip() for c in re.split(r"[,·]", text or NONE) if c.strip()))
 
 
+def unanswered(f):
+    """앞 판정 대조 비고에 적는 미응답 사유. CQS-01~04 는 설계 누락, CQS-07·08 은 문제 설명 괄호의 '미응답 사유: …' 값이다."""
+    if f["규칙"] not in OUTSIDE_RULE.values():
+        return "설계 누락"
+    m = re.search(r"미응답 사유: ([^;)]+)", f["문제 설명"])
+    return m.group(1).strip() if m else CQ_OF[f["규칙"]][1]
+
+
 def compare(prev, current, rules, skipped, basis, leave):
     """앞 판정 prev 와 이번 지적 current([(지적 번호, 지적)])를 맞댄다.
 
@@ -1067,6 +1161,10 @@ def compare(prev, current, rules, skipped, basis, leave):
             rule = pr if pr == cr else "%s → %s" % (pr, cr)
             if pr == cr:
                 kind, why = "유지", NONE
+            elif (pr in OUTSIDE_RULE.values()) != (cr in OUTSIDE_RULE.values()) and pv < rc.version_key("0.4.0"):
+                kind, why = "기준 변경", "기준 변경(미응답 사유 갈래 신설)"
+            elif (pr in OUTSIDE_RULE.values()) != (cr in OUTSIDE_RULE.values()) and CQ_OF[pr][0] == CQ_OF[cr][0]:
+                kind, why = "유지", "미응답 사유 바뀜(%s → %s)" % (unanswered(p), unanswered(c))
             elif CQ_OF[pr][0] == CQ_OF[cr][0]:
                 kind, why = "유지", "%s → %s" % (CQ_OF[pr][1], CQ_OF[cr][1])
             else:
@@ -1274,8 +1372,12 @@ def follow_ups(critical, major, unchecked):
     if major:
         out.append("3.2 Warning은 확정과 별개로 조치 필요. 처리 시점은 인수 측이 결정함")
     if any(f["규칙"] in ("CQS-03", "CQS-04") for f in major):
-        out.append("3.2의 CQ 가운데 필수 CQ로 격상되는 CQ가 있으면 판정 재수행 필요")
-    out.append("CQ 등급이 바뀌어 필수 CQ가 달라지면 판정 재수행 필요")
+        out.append("3.2의 CQ 가운데 필수 CQ로 격상되는 CQ가 있으면 CQ 문서를 고친 뒤 --fix로 설계 수정 차수에서 반영")
+    if any(f["규칙"] == "CQS-07" for f in major):
+        out.append("3.2의 CQS-07은 정의 문서만 고쳐서는 풀리지 않음. 검증 리포트 5.2절 풀 방법대로 매핑 테이블·조인 채택, "
+                   "원천 확인, 필수 등급 조정 가운데 정해 설계 수정 차수(--fix)로 반영함. 데이터가 다른 사내 원천에 있으면 "
+                   "원천 구조 문서에 더한 뒤 새 폴더로 다시 설계")
+    out.append("CQ 등급이 바뀌면 CQ 문서를 고친 뒤 --fix로 설계 수정 차수에서 반영")
     return out
 
 
@@ -1285,6 +1387,7 @@ def report(args, rules, critical, major, leave, unchecked, counted, info, cmp):
     tally = counted["집계"]
     req_total = sum(v for (kind, _), v in tally.items() if kind == "필수")
     req_yes = tally.get(("필수", "응답 가능"), 0)
+    n07 = sum(1 for f in major if f["규칙"] == "CQS-07")
 
     p = ["# %s 온톨로지 구조 판정" % name, "",
          "| 항목 | 내용 |", "|---|---|",
@@ -1298,6 +1401,9 @@ def report(args, rules, critical, major, leave, unchecked, counted, info, cmp):
         if not value:
             print("경고: 검증 리포트 문서 정보 표에 '%s' 행이 없다" % key, file=sys.stderr)
             value = "확인 필요(검증 리포트 문서 정보 표에 없음)"
+        # --design-report 를 주지 않으면 지금처럼 경로만 옮긴다
+        if key == "설계 리포트" and getattr(args, "design_report", None):
+            value = "%s(해시 %s)" % (value, cf.file_hash(args.design_report))
         p.append("| %s | %s |" % (key, esc(value)))
 
     applied = {f["규칙"] for f in critical + major} | {r[0] for r in leave}
@@ -1310,11 +1416,11 @@ def report(args, rules, critical, major, leave, unchecked, counted, info, cmp):
           "- Warning은 확정을 막지 않음. 처리 시점은 인수 측이 결정함",
           "- 등급은 규칙마다 정해져 있음(1.3 참조)", "",
           "| 등급 | 정의 | 판정 영향 |", "|---|---|---|",
-          "| Error | 필수 CQ에 응답하지 못하거나 틀린 답을 내는 항목, 또는 Graphio 반입을"
+          "| Error | 설계 누락으로 필수 CQ에 응답하지 못하거나 틀린 답·늘 빈 결과를 내는 항목, 또는 Graphio 반입을"
           " 막는 항목 | 1건 이상이면 확정 불가 |",
-          "| Warning | 구조와 필수 CQ 응답에는 문제가 없으나 인수 측이 인지해야 하는 항목"
+          "| Warning | 확정을 막지 않으나 인수 측이 인지해야 하는 항목. 원천 근거가 없어 답하지 못하는 필수 CQ(CQS-07) 포함"
           " | 영향 없음 |",
-          "| Info | 규칙에 따라 비워 두었거나 대상 환경에서 이어서 할 항목 | 영향 없음 |", "",
+          "| Info | 규칙에 따라 만들지 않았거나 대상 환경에서 이어서 할 항목 | 영향 없음 |", "",
           "- Info 항목은 3절에 올리지 않고 4절에 건수만 기재함",
           "- 검증 리포트 7절(후속 조치)의 사항은 판정에 영향 없음",
           "- 5절에 미수행 검사가 있으면 판정은 수행한 검사 범위 내에서만 유효함", "",
@@ -1337,6 +1443,7 @@ def report(args, rules, critical, major, leave, unchecked, counted, info, cmp):
           "| Warning | %d건 |" % len(major),
           "| 미수행 검사 | %s |" % ("%d건" % len(unchecked) if unchecked else NONE),
           "| 필수 CQ 응답 | %d건 중 %d건 응답 가능(전체 CQ %d건) |" % (req_total, req_yes, counted["전체"]),
+          "| 설계 밖 사유 필수 CQ 미응답 | %s |" % ("%d건(3.2절 CQS-07)" % n07 if n07 else NONE),
           "| 필수 CQ 기준 | %s |" % esc(counted["기준"]),
           "| 앞 판정 대비 | %s |" % versus(cmp)]
     if unchecked:

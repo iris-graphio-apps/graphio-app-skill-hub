@@ -111,9 +111,21 @@ DOC_TEXT = {
                      "스타일 가이드의 경고문 형식대로 상대 개념 이름을 넣어 고침"),
     ("DOC-08", ""): ("원천 구조 문서에 없는 이름이고 대상 환경에 아직 없다는 표기도 없음. "
                      "원천 이름을 잘못 옮겼으면 데이터가 연결되지 않음",
-                     "새로 만드는 구조이면 설명에 대상 환경에 아직 없다는 표기를 넣음. "
-                     "원천 이름을 잘못 옮겼으면 원천 이름으로 고침"),
+                     "채택한 매핑 테이블이면 설명에 MT 번호와 대상 환경에 아직 없다는 표기를 넣고, 문서 타입이면 종류 DOC_TYPE을 밝힘. "
+                     "그 밖의 새 구조는 지우고, 원천 이름을 잘못 옮겼으면 원천 이름으로 고침"),
     ("DOC-09", ""): ("대상 환경에 아직 없는 데이터 구조임. 반입 전에 대상 환경에서 만들어야 함", NONE),
+    ("DOC-12", ""): ("매핑 블록이 없는 개념임. 반입 뒤 개체가 0건이라 질의에 답하지 못하고 대상 환경 적용에서 막힘",
+                     "원천에서 그 개념의 테이블·문서 종류를 찾아 매핑을 더함. 없으면 개념과 그 개념만 쓰던 관계를 지우고 "
+                     "그 개념을 쓰는 CQ를 검증 리포트 5.2절에 올림"),
+    ("DOC-13", ""): ("어느 매핑 행에도 이어지지 않은 속성임. 반입 뒤 늘 빈 값을 냄",
+                     "뜻이 같은 원천 컬럼을 찾아 매핑을 더함. 없으면 속성을 지우고 그 값을 쓰는 CQ를 검증 리포트 5.2절에 올림"),
+    ("DOC-14", ""): ("조인 속성에 매핑 행이 없는 관계임. 반입은 되지만 늘 빈 관계임",
+                     "원천의 연결 키 컬럼에 조인 속성을 매핑함. 연결 키가 없으면 관계를 지우고 그 경로를 쓰는 CQ를 "
+                     "검증 리포트 5.2절에 올림"),
+    ("DOC-15", ""): ("대상 환경에 아직 없다는 표기가 있으나 MT 번호도 문서 타입 종류도 없는 데이터 구조임. "
+                     "새 데이터가 있어야 채워지는 구조임",
+                     "기존 데이터로 만들 수 있으면 설계 리포트 7.1절에 매핑 테이블로 올리고 설명에 MT 번호를 적음. "
+                     "아니면 구조와 그 구조만 쓰던 요소를 지움"),
     ("DOC-11", "둘째 표"): (
         "블록 안의 둘째 표임. 변환 스크립트가 블록마다 첫 표만 읽어(Link Type은 첫 절의 첫 표만) 이 표의 내용이 "
         "오류 없이 정의 파일에서 누락됨", "표 내용을 블록의 첫 표나 설명 줄로 옮기고 둘째 표를 지움"),
@@ -753,9 +765,9 @@ def overlap(idx, doc, cnv, spc):
     by_where = {}
     for r in doc:
         by_where.setdefault((r["규칙"], r["위치"]), []).append(r)
-    kept, dropped, taken, codes = [], {"DOC-03": 0, "DOC-04": 0, "DOC-09": 0, "DOC-11": 0}, [], {}
+    kept, dropped, taken, codes = [], {"DOC-03": 0, "DOC-04": 0, "DOC-09": 0, "DOC-11": 0, "DOC-12": 0}, [], {}
     for r in spc:
-        keeper = {"GOS61006": "DOC-04", "GOS61007": "DOC-04", "GOS61014": "DOC-09"}.get(r["외부 코드"])
+        keeper = {"GOS61006": "DOC-04", "GOS61007": "DOC-04", "GOS61014": "DOC-09", "GOS61017": "DOC-12"}.get(r["외부 코드"])
         hosts = by_where.get((keeper, r["위치"]), []) if keeper else []
         if not hosts:
             kept.append(r)
@@ -892,9 +904,10 @@ def collect(definition, converter=None, spec_skipped=False, warn_mark=None, sour
             no2_value = "변환 실패(Error %d건%s), 규격 검사 미수행" % (
                 no2["변환 Error"], ", %s 적음" % moved if moved else "")
         else:
+            moved = ", ".join("%d건은 %s 행으로" % (dropped[k], k) for k in ("DOC-09", "DOC-12") if dropped[k])
             no2_value = "변환 성공, 규격 Error %d건%s, Warning %d건, Info %d건%s" % (
                 no2["규격 Error"], "(%d건은 DOC-04 행으로 적음)" % dropped["DOC-04"] if dropped["DOC-04"] else "",
-                no2["Warning"], no2["Info"], "(%d건은 DOC-09 행으로 적음)" % dropped["DOC-09"] if dropped["DOC-09"] else "")
+                no2["Warning"], no2["Info"], "(%s 적음)" % moved if moved else "")
         no2_text = row_numbers({r["No."] for r in kept + taken}) or NONE
 
     notes = []

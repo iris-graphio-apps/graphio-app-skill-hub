@@ -37,7 +37,7 @@
 문서는 '정의 문서'·'원천 구조 문서', 문제는 '파일 없음'·'UTF-8로 읽을 수 없음'·'읽기 실패'·'개념 없음'
 가운데 하나다.
 
-종료 코드: 0 Error 없음, 1 Error 있음, 2 문서를 읽지 못함(개념을 찾지 못한 경우 포함).
+종료 코드(결정 32 첫 판과 같은 뜻): 0 Error 없음, 1 Error 있음(검사를 마침, 오류 아님), 2 문서를 읽지 못함(입력 쪽 멈춤, 개념을 찾지 못한 경우 포함), 3 검사기가 예상하지 못한 오류(스킬 쪽 실패).
 """
 import argparse
 import json
@@ -59,6 +59,8 @@ FOUR_SECTIONS = {"objecttype", "오브젝트타입", "linktype", "링크타입",
 PAIR = re.compile(r"아니라\s*(\S+?)\s*(?:을|를)\s*(?:써야|사용)")
 # 데이터 구조 설명에 대상 환경에 아직 없다고 적은 표지
 ABSENT = re.compile(r"(아직\s*(없|등록되지)|존재하지\s*않|전처리가\s*(필요|선행)|만들어야|생성해야)")
+MT_MARK = re.compile(r"MT-\d{2}")      # 채택한 매핑 테이블 표지. 설계 리포트 7.1절의 MT 번호
+KIND_KEYS = ("종류", "metatypekind", "kind")      # Meta Type 종류 줄 키. 변환 스크립트 BULLET["kind"] 별칭과 같다
 EXCERPT = 60    # 발췌 길이(글자). 넘치면 줄이고 … 를 붙인다
 
 
@@ -98,8 +100,12 @@ def read_blocks(lines):
 
 
 def meta_types(lines):
-    """Meta Type 절의 (이름, 줄번호, 설명, 설명 줄번호) 를 모은다."""
-    out, sec, cur = [], None, None
+    """Meta Type 절의 (이름, 줄번호, 설명, 설명 줄번호, 종류) 를 모은다. 종류 줄이 없으면 종류는 빈 값이다.
+
+    종류는 '- 종류:' 줄을 변환 스크립트가 읽는 자리, 곧 블록 제목 뒤 첫 표·제목 줄 앞에서만 읽는다.
+    그 뒤에 적은 종류 줄은 변환 결과에 들지 않으므로 종류가 없는 것으로 본다.
+    """
+    out, sec, cur, head = [], None, None, False
     for i, raw in enumerate(lines):
         line = raw.rstrip("\n")
         m = re.match(r"^##\s+(?!#)(.+?)\s*$", line)
@@ -110,13 +116,20 @@ def meta_types(lines):
             continue
         m = re.match(r"^###\s+(.+?)\s*$", line)
         if m and sec:
-            cur = [m.group(1).strip(), i + 1, "", None]
+            cur, head = [m.group(1).strip(), i + 1, "", None, ""], True
             out.append(cur)
             continue
         if cur is not None:
-            m = re.match(r"^[-*]\s*(설명|description|desc)\s*[:：]\s*(.*)$", line.strip(), re.I)
+            s = line.strip()
+            if s.startswith("|") or s.startswith("#"):
+                head = False        # 첫 표·제목 줄부터는 변환 스크립트가 '- 키:' 줄을 읽지 않는다
+            m = re.match(r"^[-*]\s*(설명|description|desc)\s*[:：]\s*(.*)$", s, re.I)
             if m:
                 cur[2], cur[3] = m.group(2).strip(), i + 1
+            # 종류 줄. 키는 변환 스크립트 BULLET["kind"] 별칭(종류·metatypekind·kind)과 같게 공백·기호·대소문자를 가리지 않는다
+            m = re.match(r"^[-*]\s*([^:：]+)[:：]\s*(.*)$", s)
+            if m and head and re.sub(r"[\s\-_·.]", "", m.group(1)).lower() in KIND_KEYS:
+                cur[4] = m.group(2).strip()
     return [tuple(x) for x in out]
 
 
@@ -403,32 +416,82 @@ def check(lines, blocks, idx, mark, source):
                 "경고문에 상대 개념 이름 포함 여부 확인", b["line"], sentence(d, base, base),
                 b["desc_line"])
 
-    # DOC-09 대상 환경에 아직 없는 데이터 구조를 짚는다
-    #    문서 타입과 전처리 산출물은 여기 나오는 것이 정상이다. 오류가 아니라
-    #    다음 단계의 일거리이므로, 리포트에 누가 하는지 적혔는지 확인하라고만 알린다.
+    # DOC-09·15 대상 환경에 아직 없는 데이터 구조를 짚는다
+    #    문서 타입과 채택한 매핑 테이블(MT 번호)만 정상이다. 오류가 아니라
+    #    다음 단계의 일거리이므로, 리포트에 누가 하는지 적혔는지 확인하라고만 알린다(DOC-09).
+    #    MT 번호도 종류 DOC_TYPE 도 없으면 새 데이터가 있어야 채워지는 구조라 Error 다(DOC-15).
     metas = meta_types(lines)
     absent_names = []
-    for name, ln, desc, desc_ln in metas:
+    for name, ln, desc, desc_ln, kind in metas:
         m = ABSENT.search(desc)
-        if m:
-            absent_names.append(name)
+        if not m:
+            continue
+        absent_names.append(name)       # 두 경우 모두 넣어 DOC-08 과 겹치지 않게 한다
+        if MT_MARK.search(desc) or kind.upper() == "DOC_TYPE":
             add("DOC-09", "확인", "%d줄(%s)" % (ln, name),
                 "대상 환경에 미생성된 데이터 구조. 반입 전 생성 필요",
-                "설계 리포트 7.1절(신규 메타타입)에 사용 개념·생성 방법·조치 주체 기재 여부 확인. "
+                "설계 리포트 7.1절(매핑 테이블 제안)·7.2절(문서 타입)에 사용 개념·재료·생성 방법·조치 주체 기재 여부 확인. "
                 "규격 검사는 GOS61014로 지적하나 조치 주체는 알려 주지 않음",
+                ln, around(desc, m.start(), m.end()), desc_ln)
+        else:
+            add("DOC-15", "오류", "%d줄(%s)" % (ln, name),
+                "대상 환경에 아직 없다는 표지가 있으나 MT 번호도 문서 타입 종류도 없는 데이터 구조",
+                "기존 데이터로 만들 수 있으면 설계 리포트 7.1절에 매핑 테이블로 올리고 설명에 MT 번호를 적음. "
+                "아니면 구조와 그 구조만 쓰던 요소를 지움",
                 ln, around(desc, m.start(), m.end()), desc_ln)
 
     # DOC-08 원천 문서를 받았으면 데이터 구조 이름이 거기 있는지 대조한다
     #    원천에 없는 이름 자체는 잘못이 아니다 — 문서 타입은 여기서 처음 정해진다.
     #    다만 아무 설명 없이 원천에 없는 이름이 있으면 짚어 준다.
     if source is not None:
-        for name, ln, desc, desc_ln in metas:
+        for name, ln, desc, desc_ln, kind in metas:
             if name not in source and name not in absent_names:
                 add("DOC-08", "경고", "%d줄(%s)" % (ln, name),
                     "원천 문서에 없는 이름이며 출처 기재 없음",
-                    "문서 타입·전처리로 새로 생기는 구조이면 설명에 기재. "
-                    "원천 이름을 잘못 옮긴 경우 원천 이름으로 정정",
+                    "채택한 매핑 테이블이면 설명에 MT 번호와 대상 환경에 아직 없다는 표기를 넣고, 문서 타입이면 종류 DOC_TYPE을 밝힘. "
+                    "그 밖의 새 구조는 지우고, 원천 이름을 잘못 옮겼으면 원천 이름으로 고침",
                     ln, clip(lines[ln - 1]), ln)
+
+    # DOC-12·13·14 매핑이 없어 반입 뒤 비는 개념·속성·관계를 짚는다. 정의 문서 색인(definition_index)의 함수를 그대로 쓴다
+    #    DOC-12 는 매핑 블록이 없는 개념이다. 블록이 있어도 변환 스크립트가 옮길 매핑 행이 없으면 같다(unmapped_concepts).
+    #    규격 검사기 GOS61017 과 같은 결함이라 위치를 개념 제목 줄로 적어, 수집 스크립트가 같은 위치의 SPC-03 행을
+    #    이 행에 합치게 한다(rule-catalog.md 4절).
+    #    DOC-13 은 매핑 블록은 있으나 어느 매핑 행에도 이어지지 않은 속성이다. 그 개념이 양끝인 관계의
+    #    조인 속성은 DOC-14 가 보므로 뺀다. 조인 속성은 양끝 칸과 조인 속성 칸이 모두 찬 관계 행에서 모으고,
+    #    방향을 읽지 못하는 등 변환 스크립트가 옮기지 않는 관계 행도 넣는다.
+    #    DOC-14 는 조인 속성 둘 가운데 하나라도 매핑 행이 없는 관계다. DOC-12 인 끝의 조인 속성은 DOC-12 가
+    #    짚으므로 세지 않는다. 양끝이 DOC-12 면 내지 않는다.
+    #    DOC-14 는 변환 스크립트가 옮기는 관계만 본다. 칸이 비거나 방향을 읽지 못하는 관계는 변환 오류로 나온다.
+    unmapped = idx.unmapped_concepts()
+    unmapped_names = {c.name for c in unmapped}
+    for c in unmapped:
+        add("DOC-12", "오류", "%d줄(%s)" % (c.line, c.name),
+            "매핑 블록이 없는 개념임. 반입 뒤 개체가 0건이라 질의에 답하지 못하고 대상 환경 적용에서 막힘",
+            "원천에서 그 개념의 테이블·문서 종류를 찾아 매핑을 더함. 없으면 개념과 그 개념만 쓰던 관계를 지우고 "
+            "그 개념을 쓰는 CQ를 검증 리포트 5.2절에 올림",
+            c.line, clip(lines[c.line - 1]), c.line)
+    links = idx.converted("linkTypes")
+    joined = [r for r in idx.relations if all((r.source, r.source_prop, r.target, r.target_prop))]
+    joins = {(r.source, r.source_prop) for r in joined} | {(r.target, r.target_prop) for r in joined}
+    for c in idx.concepts:
+        if c.name in unmapped_names:
+            continue
+        for p in c.converted_children():
+            if (c.name, p.name) in joins or idx.find_mapping_rows(c.name, None, p.name):
+                continue
+            add("DOC-13", "오류", "%d줄(%s)" % (p.line, p.name),
+                "어느 매핑 행에도 이어지지 않은 속성임. 반입 뒤 늘 빈 값을 냄",
+                "뜻이 같은 원천 컬럼을 찾아 매핑을 더함. 없으면 속성을 지우고 그 값을 쓰는 CQ를 검증 리포트 5.2절에 올림",
+                p.line, clip(lines[p.line - 1]), p.line)
+    for r in links:
+        missing = [prop for concept, prop in ((r.source, r.source_prop), (r.target, r.target_prop))
+                   if concept not in unmapped_names and not idx.find_mapping_rows(concept, None, prop)]
+        if missing:
+            add("DOC-14", "오류", "%d줄(%s)" % (r.line, r.name),
+                "조인 속성에 매핑 행이 없는 관계임. 반입은 되지만 늘 빈 관계임",
+                "원천의 연결 키 컬럼에 조인 속성을 매핑함. 연결 키가 없으면 관계를 지우고 그 경로를 쓰는 CQ를 "
+                "검증 리포트 5.2절에 올림",
+                r.line, clip(lines[r.line - 1]), r.line)
 
     # DOC-11 변환되지 않는 표 — 변환 스크립트는 블록마다 첫 표만 읽고(Link Type 은 첫 절의 첫 표만)
     #      첫 표 앞에서 제목 줄(#)을 만나면 그 블록의 표를 하나도 읽지 않는다.
@@ -546,4 +609,8 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as e:      # 처리하지 못한 예외가 종료 코드 1(Error 있음)로 읽히지 않게 3 으로 끝낸다(결정 32)
+        print("검사하지 않음: 정의 문서 검사기가 예상하지 못한 오류로 멈춤(%s: %s)" % (type(e).__name__, e), file=sys.stderr)
+        sys.exit(3)
