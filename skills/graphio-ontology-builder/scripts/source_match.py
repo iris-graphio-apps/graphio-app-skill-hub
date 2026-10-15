@@ -55,6 +55,7 @@ import re
 import sys
 
 import definition_index as di
+import design_report_index as dri
 
 # 4.2절 표의 칸 이름. 읽을 때는 공백을 지운 꼴(답요소·근거위치)을 열쇠로 쓴다
 COLUMNS = ("No.", "답 요소", "요소 종류", "사용 CQ", "판정", "근거 위치", "처리", "결정 No.")
@@ -83,8 +84,8 @@ class InputError(Exception):
 # ── 칸 읽기 ──────────────────────────────────────────────────────────────────
 def verdict(cell):
     """판정 칸 값. 괄호 앞 낱말로 가른다."""
-    # 설계 리포트 읽기 모듈(design_report_index.py)이 생기면 그 verdict() 를 불러 쓰게 바꾼다
-    return re.split(r"[(（]", cell, 1)[0].strip()
+    # 판정 칸 읽기 규칙은 설계 리포트 읽기 모듈(design_report_index.py)의 verdict() 한 곳에 두고 불러 쓴다
+    return dri.verdict(cell)
 
 
 def element_name(cell):

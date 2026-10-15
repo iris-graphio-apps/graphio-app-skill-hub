@@ -21,6 +21,8 @@
     --source <파일> ...   원천 구조 문서. 문서 정보 표에 적혀 있으면 반드시 준다
     --cq <파일> ...       CQ 문서. 수집할 때 줬으면 같은 파일을 준다
     --warn-mark <기호>    가이드가 정한 경고 기호가 ⚠ 가 아닐 때
+    --design-report <파일>  설계 리포트. 주면 리포트 판과 파일 이름을 확인하고 판정 문서 정보 표에 해시를 적는다
+    --json                표준 출력에 JSON 하나를 낸다. 칸은 code·message_ko·model_hint·detail
 
 스킬이 적은 위치(4.2 스킬 행, 5절 부분 응답·응답 불가 행)는 정의 문서에서 다시 찾는다. 줄 번호가
 빠졌으면 채우고, 찾지 못하거나 줄 번호가 다르면 멈춘다. 6절의 매핑 컬럼은 정의 문서의 매핑과 맞대 본다.
@@ -36,12 +38,14 @@ CQ 문서가 CQ에 등급을 매겼으면 어느 말을 필수로 볼지 --requi
 후속 조치다). 앞 판정을 주지 않았거나 읽지 못하면 6절에 사유 한 줄만 두고 판정은 이어 간다.
 
 입력을 읽지 못하거나 맞지 않으면 판정 문서를 쓰지 않고 멈춘다. 읽지 못한 채 판정하면 Error가 빠진
-문서가 「확정 가능」 으로 나가기 때문이다. 종료 코드: 0 확정 가능, 1 확정 불가, 2 판정하지 않음.
+문서가 「확정 가능」 으로 나가기 때문이다.
+종료 코드: 0 확정 가능, 1 확정 불가·관문 어긋남, 2 입력 쪽 멈춤(판정하지 않음), 3 스킬 쪽 실패, 4 판정 문서 쓰기 실패.
 
 문서의 꼴과 문체는 references/report-conventions.md 를 따른다.
 """
 import argparse
 import datetime
+import json
 import os
 import re
 import sys
@@ -49,6 +53,7 @@ import sys
 import collect_findings as cf
 import definition_index as di
 import rule_catalog as rc
+import design_report_index as dri
 
 NONE = "해당 없음"
 
@@ -76,6 +81,7 @@ SPEC_SKIPPED = "converter 스킬 없음"
 MAP_CHECK = "매핑 의미 검사"
 INP_CHECK = "입력 문서 간 불일치 확인"
 SRC_CHECK = "원천 구조 문서 대조(DOC-08)"
+CQ_HASH_CHECK = "설계 리포트 CQ 해시 맞대기(관문 5)"
 
 # 필수 CQ 기준을 스킬이 정했다는 표시. 이 말이 있으면 CQS-06(CQ 등급 미확정)을 올린다.
 SKILL_DECIDED = ("스킬 판단", "전체 CQ")
@@ -92,12 +98,28 @@ WHERE_3 = "검증 리포트 3절(산출 규모)"
 WHERE_51 = "검증 리포트 5.1절(CQ별 판정표)"
 
 
+# 멈춤 JSON 의 code. 종료 코드마다 stop-catalog.md 1장 표의 코드 이름이고, 같은 종료 코드의 다른 자리는 예외의 code 로 가른다
+STOP_CODE = {1: "JUDGE_UNDECIDED", 2: "JUDGE_INPUT", 3: "SKILL_UNEXPECTED", 4: "OUTPUT_WRITE_FAILED"}
+
+
 class InputError(Exception):
     """판정할 수 없는 입력. 판정 문서를 쓰지 않고 멈춘다. fix 는 고칠 곳이다."""
 
-    def __init__(self, message, fix):
+    code = None     # 멈춤 JSON 의 code. 없으면 종료 코드로 고른다
+
+    def __init__(self, message, fix, code=None):
         super().__init__(message)
         self.fix = fix
+        if code is not None:
+            self.code = code
+
+
+class GateError(InputError):
+    """관문 어긋남. 판정 문서를 쓰지 않고 종료 코드 1 로 멈춘다."""
+
+
+class OutputError(InputError):
+    """판정 문서(-o)를 쓰지 못함. 종료 코드 4 로 멈춘다."""
 
 
 # ── 검증 리포트 읽기 ─────────────────────────────────────────────────────────
@@ -591,6 +613,17 @@ def cq_findings(args, lines, heads, idx, rules):
     counted = {"전체": len(rows), "집계": tally, "기준": basis}
     if ri is not None:      # 미응답 사유 칸이 없는 옛 5절이면 '사유' 열쇠를 두지 않는다
         counted["사유"] = req_reasons
+    design = getattr(args, "design", None)
+    if design is not None:
+        try:
+            if ri is not None:      # 미응답 사유 칸이 없는 옛 5절이면 4.2절 맞대기를 건너뛴다
+                design_basis_check([(cq, set(re.split(r"\s*·\s*", cell(r, ri))), cell(r, bi))
+                                    for r in rows for cq in dri.cq_set(cell(r, qi))], design)
+            design_pattern_check({cq: cell(r, vi) for r in rows for cq in dri.cq_set(cell(r, qi))}, design)
+        except dri.ReportError as e:
+            if e.problem == "절·칸 없음":        # 절·칸이 없음은 읽기 실패가 아니라 '읽지 못함' 머리를 붙이지 않는다
+                raise InputError(e.detail, "--design-report 경로")
+            raise InputError("설계 리포트를 읽지 못함: %s" % e, "--design-report 경로")
     return out, counted
 
 
@@ -638,6 +671,50 @@ def outside_summary(lines, heads, asked):
         if cell(r, ki) != rule:
             raise InputError("검증 리포트 5.2절 요약표 %s의 규칙이 5.1절의 필수 여부와 미응답 사유로 정한 규칙과 다름"
                              "(요약표 '%s', 판정 스크립트 '%s')" % (name, cell(r, ki), rule), "검증 리포트 5.2절")
+
+
+OUTSIDE = set(CQ_REASONS) - {"해당 없음", "설계 누락"}
+
+
+def expected_reason(verdict, action):
+    if verdict == "있음": return "설계 누락"
+    if action == "규격 제약": return "규격 제약"
+    if action == "빼고 보고(후보 미채택)" or (verdict in ("형태 다름", "경유") and action == "빼고 보고"): return "원천 선택 미채택"
+    return {"없음": "원천 부재", "확인 필요": "원천 확인 필요"}.get(verdict)
+
+
+def design_basis_check(cq_rows, design):          # cq_rows: 5.1절 (CQ 번호, 사유 집합, 근거 칸)
+    rows = dri.table_4_2(design)
+    for cq, reasons, basis in cq_rows:
+        out = reasons & OUTSIDE
+        nos = [int(n) for n in re.findall(r"설계 리포트 4\.2절 No\.(\d+)", basis)]
+        if out and (not nos or any(n not in rows for n in nos)):
+            raise InputError("CQ %s 설계 밖 사유의 근거 칸에 설계 리포트 4.2절 No.가 없거나 틀림" % cq, "검증 리포트 5.1절 근거 칸",
+                             code="JUDGE_DESIGN_BASIS")
+        mine = [r for r in rows.values() if cq in dri.cq_set(r["사용cq"])]
+        if out and mine and all(dri.verdict(r["판정"]) == "있음" for r in mine):
+            raise InputError("설계 누락 숨김: CQ %s 답 요소가 4.2절에서 모두 있음인데 사유가 %s" % (cq, "·".join(sorted(out))),
+                             "검증 리포트 5.1절 미응답 사유. 설계 누락으로 적음", code="JUDGE_DESIGN_BASIS")
+        if out and out - {expected_reason(dri.verdict(rows[n]["판정"]), rows[n]["처리"]) for n in nos}:
+            raise InputError("CQ %s 미응답 사유가 설계 리포트 4.2절 판정과 맞지 않음" % cq, "검증 리포트 5.1절 미응답 사유와 근거 칸",
+                             code="JUDGE_DESIGN_BASIS")
+
+
+def design_pattern_check(verdicts, design):     # verdicts: 5.1절 {CQ 번호: 판정}
+    rows4 = dri.table_4_2(design)
+    for no, r in sorted(dri.table_4_3(design).items()):
+        piece = r["뺀꼴요소"].strip()
+        if dri.is_none(piece):          # 빈 값·'-'·'해당 없음'·'없음'은 뺀 꼴 요소가 없다는 값
+            continue
+        for cq in sorted(dri.cq_set(r["cq"])):
+            if verdicts.get(cq) == "응답 가능":
+                raise InputError("설계 리포트 4.3절 No.%s에서 꼴 요소를 뺀 CQ %s가 검증 리포트 5.1절에서 응답 가능임" % (no, cq),
+                                 "검증 리포트 5.1절 판정. 꼴 요소를 뺀 CQ는 응답 가능이 될 수 없음", code="JUDGE_DESIGN_BASIS")
+        for n in [int(x) for x in re.findall(r"No\.(\d+)", piece)]:
+            if n in rows4 and dri.verdict(rows4[n]["판정"]) == "있음":
+                raise InputError("설계 누락: 설계 리포트 4.3절 No.%s 뺀 꼴 요소가 가리키는 4.2절 No.%d 판정이 있음" % (no, n),
+                                 "설계 리포트 4.3절 뺀 꼴 요소. 원천에 있는 꼴 요소는 빼지 않고 설계에 넣음",
+                                 code="JUDGE_DESIGN_BASIS")
 
 
 def target_of(text):
@@ -872,6 +949,8 @@ def judge(args, lines, rules):
     if res["원천 구조 문서 대조"] != "수행":
         unchecked.append((SRC_CHECK,
                           "원천 구조 문서 미제공" if not args.source else "텍스트로 읽을 수 없는 형식"))
+    if getattr(args, "design", None) is not None and not args.cq:
+        unchecked.append((CQ_HASH_CHECK, "CQ 문서 미제공"))
 
     grade = {f["규칙"]: rules.get(f["규칙"])["등급"] for f in found}
     critical = [f for f in found if grade[f["규칙"]] == "Error"]
@@ -1402,7 +1481,7 @@ def report(args, rules, critical, major, leave, unchecked, counted, info, cmp):
             print("경고: 검증 리포트 문서 정보 표에 '%s' 행이 없다" % key, file=sys.stderr)
             value = "확인 필요(검증 리포트 문서 정보 표에 없음)"
         # --design-report 를 주지 않으면 지금처럼 경로만 옮긴다
-        if key == "설계 리포트" and getattr(args, "design_report", None):
+        if key == "설계 리포트" and args.design_report:
             value = "%s(해시 %s)" % (value, cf.file_hash(args.design_report))
         p.append("| %s | %s |" % (key, esc(value)))
 
@@ -1427,7 +1506,9 @@ def report(args, rules, critical, major, leave, unchecked, counted, info, cmp):
           "### 1.3 적용 규칙", ""]
     if applied:
         p += ["- 이 판정 문서의 3·4절에 나온 규칙임", "- 설명은 규칙이 무엇을 찾고 왜 그 등급인지를 적음",
-              "- '스킬'은 이 설계를 수행한 도구를 가리킴. 탐지 방식의 '스킬 검사'는 스킬이 문서를 읽고 판단한 검사임", "",
+              "- '스킬'은 이 설계를 수행한 도구를 가리킴. 탐지 방식의 '스킬 검사'는 스킬이 문서를 읽고 판단한 검사임. "
+              "'스킬 검사 + 판정 스크립트 확인'으로 적힌 규칙(CQS-07·08)은 스킬이 적은 미응답 사유를 판정 스크립트가 "
+              "설계 리포트 4.2절 원천 대조 판정과 맞대 다시 확인하고, 어긋나면 판정하지 않고 멈춤", "",
               "| 규칙 | 이름 | 등급 | 탐지 방식 | 설명 |", "|---|---|---|---|---|"]
         for rule in rules.rules:
             if rule in applied:
@@ -1479,6 +1560,9 @@ def main():
         description="온톨로지 구조를 확정해도 되는지 판정한다. Error가 0건이면 확정한다.")
     ap.add_argument("definition", help="온톨로지 정의 문서")
     ap.add_argument("report", help="온톨로지 검증 리포트")
+    ap.add_argument("--design-report", default=None, metavar="파일",
+                    help="설계 리포트. 주면 리포트 판과 파일 이름을 확인하고 판정 문서 정보 표에 해시를 적는다")
+    ap.add_argument("--json", action="store_true", help="표준 출력에 JSON 하나를 낸다. 칸은 code·message_ko·model_hint·detail")
     ap.add_argument("--required-grade", action="append", default=[], metavar="말",
                     help="등급 칸에서 필수로 볼 말. 여러 번 줄 수 있다. 주지 않으면 모든 CQ를 필수로 본다")
     ap.add_argument("--converter", metavar="폴더",
@@ -1511,6 +1595,33 @@ def main():
                 lines = f.read().splitlines()
         except (OSError, UnicodeDecodeError) as e:
             raise InputError("검증 리포트를 읽지 못함: %s (%s)" % (args.report, e), "검증 리포트 경로")
+        args.design = None
+        if args.design_report:
+            try:
+                design = args.design = dri.read_report(args.design_report)        # 파일 읽기·UTF-8 확인은 모듈 한 곳
+            except dri.ReportError as e:
+                raise InputError("설계 리포트를 읽지 못함: %s" % e, "--design-report 경로")        # e 에 경로가 있다
+            stage = design.info.get("리포트 판", "")
+            if not stage:
+                raise InputError("설계 리포트 문서 정보 표에 '리포트 판' 행이 없음", "설계 리포트 문서 정보 표")
+            if norm(stage) != norm("검증 뒤"):
+                raise InputError("설계 리포트 리포트 판이 '검증 뒤'가 아님: %s" % stage,
+                                 "설계 리포트 문서 정보 표. 검증 뒤 판을 준다")
+            listed = os.path.basename(info_table(lines).get("설계 리포트", "").replace(chr(96), "").strip())
+            if listed != os.path.basename(args.design_report):
+                raise InputError("검증 리포트의 설계 리포트(%s)와 받은 설계 리포트(%s)가 다름"
+                                 % (listed or "행 없음", args.design_report), "--design-report 경로")
+            if not dri.has_cq_hash(design):        # 4절 CQ 행 '해시/등급' 칸. 관문 1을 거치지 않은 설계 리포트
+                raise InputError("설계 리포트 4절 CQ 행에 '해시/등급' 칸이 없음",
+                                 "관문 1(check_design_report.py --stage 설계)을 거친 설계 리포트를 준다")
+            if args.cq:        # --cq 가 없으면 관문 5 맞대기를 건너뛰고 judge() 가 5절 미수행 검사에 남김
+                try:
+                    bad = dri.cq_hash_diff(design, args.cq)        # 관문 5: CQ 문서를 다시 셈해 4절 CQ 행 '해시/등급' 칸과 맞댐
+                except dri.ReportError as e:
+                    raise InputError("CQ 문서를 읽지 못함: %s" % e, "--cq 경로")        # e 에 읽지 못한 그 CQ 문서 경로가 있다
+                if bad:
+                    raise GateError("설계 리포트 4절 CQ 해시·등급이 CQ 문서와 다름: %s" % ", ".join(bad),
+                                    "CQ 문서를 바꿨으면 --fix 로 설계 수정 차수에서 반영", code="JUDGE_CQ_HASH")
         critical, major, leave, unchecked, counted, info = judge(args, lines, rules)
         cmp = previous_comparison(args, rules, critical, major, leave, unchecked, counted["기준"])
         text = report(args, rules, critical, major, leave, unchecked, counted, info, cmp)
@@ -1519,8 +1630,8 @@ def main():
                 with open(args.out, "w", encoding="utf-8") as f:
                     f.write(text + "\n")
             except OSError as e:
-                raise InputError("판정 문서를 쓰지 못함: %s (%s)" % (args.out, e.strerror or e), "-o 경로")
-    except Exception as e:      # 예상 밖 예외도 종료 코드 2 로 끝낸다. 1 은 '확정 불가' 라 헷갈리기 때문이다
+                raise OutputError("판정 문서를 쓰지 못함: %s (%s)" % (args.out, e.strerror or e), "-o 경로")
+    except Exception as e:      # 관문 어긋남 1, 입력 쪽 멈춤 2, 스킬 쪽 실패 3, 판정 문서 쓰기 실패 4 로 끝낸다. 판정 '확정 불가' 도 1 이며 멈춤 JSON code 로 가른다
         if isinstance(e, InputError):
             print("판정하지 않음: %s" % e, file=sys.stderr)
             print("고칠 곳: %s" % e.fix, file=sys.stderr)
@@ -1535,17 +1646,38 @@ def main():
         if args.out and os.path.exists(args.out):
             print("경고: -o 파일이 이미 있음: %s. 이전 실행의 판정 문서이며 이번 판정 결과가 아니다" % args.out,
                   file=sys.stderr)
-        return 2
+        code = (4 if isinstance(e, OutputError) else 1 if isinstance(e, GateError)
+                else 2 if isinstance(e, InputError) and e.fix != cf.MISMATCH_HINT else 3)
+        stop_code = (getattr(e, "code", None)
+                     or ("SKILL_VERSION_MISMATCH" if isinstance(e, InputError) and e.fix == cf.MISMATCH_HINT
+                         else STOP_CODE[code]))
+        if args.json:
+            json.dump({"code": stop_code, "message_ko": str(e),
+                       "model_hint": e.fix if isinstance(e, InputError) else "스크립트를 고치지 말고 사용자에게 알림",
+                       "detail": {"종료 코드": code, "판정 문서": args.out}}, sys.stdout, ensure_ascii=False)
+            print()
+        return code
 
-    if args.out:
-        print("판정: %s   Error %d건 · Warning %d건 · 미수행 검사 %d건"
-              % ("확정 불가" if critical else "확정 가능", len(critical), len(major), len(unchecked)))
+    code = 1 if critical else 0
+    verdict = "확정 불가" if critical else "확정 가능"
+    summary = "판정: %s   Error %d건 · Warning %d건 · 미수행 검사 %d건" % (verdict, len(critical), len(major), len(unchecked))
+    if args.json:       # 요약 줄과 판정 문서 본문 대신 멈춤 JSON 과 같은 네 칸 JSON 하나를 낸다
+        detail = {"판정": verdict, "Error": len(critical), "Warning": len(major), "미수행 검사": len(unchecked),
+                  "판정 문서": args.out}
+        if not args.out:
+            detail["판정 문서 본문"] = text
+        json.dump({"code": STOP_CODE.get(code), "message_ko": summary,
+                   "model_hint": " / ".join(follow_ups(critical, major, unchecked)), "detail": detail},
+                  sys.stdout, ensure_ascii=False)
+        print()
+    elif args.out:
+        print(summary)
         if args.previous:
             print("앞 판정 대비: %s" % ("사유" in cmp and cmp["사유"] or versus(cmp)))
         print("썼다: %s" % args.out)
     else:
         print(text)
-    return 1 if critical else 0
+    return code
 
 
 if __name__ == "__main__":

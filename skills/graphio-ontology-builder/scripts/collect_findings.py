@@ -26,12 +26,13 @@
     원천 구조 문서 대조  '수행'·'미수행(원천 구조 문서 미제공)'·'미수행(텍스트로 읽을 수 없는 형식)'
     통계           정의 문서 검사기의 통계('확인 필요 표기' 등). 판정 스크립트가 4절 건수에 쓴다
     건수           정의 문서 검사 등급별 건수, 서식 변환 검사 결과와 나누기 뒤·겹침 처리 전 건수, 겹쳐서 DOC 행으로 적은 건수
-멈추면 {"수집됨": false, "까닭": …, "스킬 판본 문제": …} 를 낸다.
+멈추면 {"수집됨": false, "까닭": …, "스킬 판본 문제": …, "code": …, "message_ko": …, "model_hint": …} 를 낸다.
 
 지적은 규칙 번호 차례(rule-catalog.md 2절 표 차례), 줄 번호, 발생 경로 차례로 둔다. 같은 입력이면
 늘 같은 출력이다. 같은 결함을 두 검사가 함께 잡으면 rule-catalog.md 4절대로 DOC 행만 남긴다.
 
-아래 경우에는 표 행을 내지 않고 멈춘다(종료 코드 2). 규칙 목록 문서 확인에 걸림, 정의 문서를 읽지
+아래 경우에는 표 행을 내지 않고 멈춘다(입력 쪽 멈춤은 종료 코드 2, 아래 MismatchError 로 가르는 스킬 판본 문제는 3).
+규칙 목록 문서 확인에 걸림, 정의 문서를 읽지
 못함, 하위 스크립트가 예외로 끝나거나 JSON 을 내지 못함, converter 폴더에 두 스크립트가 없음,
 --converter 와 --spec-skipped 를 함께 주거나 둘 다 주지 않음, 원천 구조 문서나 CQ 문서가 없거나 읽지 못함,
 변환표에 없는 코드·메시지 꼴, 색인과 변환 스크립트가 정의 문서를 다르게 읽음, 정의 문서 위치로
@@ -44,7 +45,7 @@
 규격 검사기가 짚은 대상을 되돌리지 못함, 규칙 목록 문서 확인에 걸림, 하위 스크립트가 예외로 끝나거나
 JSON 을 내지 못함이 그렇다. 입력이나 옵션으로 풀리지 않으므로 스크립트를 고치지 말고 사용자에게 알린다.
 
-종료 코드: 0 수집함(지적이 있어도 0), 2 멈춤.
+종료 코드: 0 수집함(지적이 있어도 0), 2 입력 쪽 멈춤, 3 스킬 쪽 실패(예상 밖 예외, 스킬 판본 문제), 4 출력 쓰기 실패.
 """
 import argparse
 import ast
@@ -360,6 +361,8 @@ class MismatchError(CollectError):
 
 # MismatchError 로 멈췄을 때 할 일. 수집·판정 스크립트가 함께 쓴다.
 MISMATCH_HINT = "스킬 스크립트·규칙 목록 문서·converter 쪽 문제라 입력이나 옵션으로 풀리지 않음. 스크립트를 고치지 말고 사용자에게 알림"
+# 멈춤 JSON 의 code. stop-catalog.md 1장 표의 코드 이름이다
+STOP_CODE = {2: "COLLECT_INPUT", 3: "SKILL_VERSION_MISMATCH"}
 
 
 def _compile(fmt):
@@ -999,13 +1002,23 @@ def main():
     try:
         result = collect(args.definition, converter=args.converter, spec_skipped=args.spec_skipped,
                          warn_mark=args.warn_mark, sources=args.source, cq=args.cq)
-    except Exception as e:      # 예상하지 못한 오류도 종료 코드 2 로 멈춘다. 1 은 쓰지 않는 값이다
+    except Exception as e:      # 입력이나 옵션 문제는 종료 코드 2, 스킬 판본 문제와 예상하지 못한 오류는 3, 출력 쓰기 실패는 4 로 멈춘다. 1 은 쓰지 않는 값이다
         mismatch = isinstance(e, MismatchError) or not isinstance(e, CollectError)
         why = str(e) if isinstance(e, CollectError) else "수집 스크립트가 예상하지 못한 오류로 멈춤(%s: %s)" % (
             type(e).__name__, e)
         if args.json:
-            json.dump({"수집됨": False, "까닭": why, "스킬 판본 문제": mismatch}, sys.stdout, ensure_ascii=False)
-            print()
+            try:
+                json.dump({"수집됨": False, "까닭": why, "스킬 판본 문제": mismatch,
+                           "code": STOP_CODE[3] if isinstance(e, MismatchError) else ("SKILL_UNEXPECTED" if mismatch else STOP_CODE[2]),
+                           "message_ko": why,
+                           "model_hint": "스크립트를 고치지 말고 사용자에게 알림" if mismatch else "입력이나 옵션을 고친 뒤 다시 수행"},
+                          sys.stdout, ensure_ascii=False)
+                print()
+                sys.stdout.flush()
+            except OSError as err:
+                print("수집 결과를 내지 못함: %s" % (err.strerror or err), file=sys.stderr)
+                os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+                return 4
         else:
             print("수집하지 않음: %s" % why, file=sys.stderr)
             if mismatch:
@@ -1013,12 +1026,18 @@ def main():
                       "스크립트를 고치지 말고 사용자에게 알린다. 지적 목록 행은 내지 않았다.", file=sys.stderr)
             else:
                 print("입력이나 옵션을 고친 뒤 다시 수행한다. 지적 목록 행은 내지 않았다.", file=sys.stderr)
-        return 2
-    if args.json:
-        json.dump(result, sys.stdout, ensure_ascii=False, indent=1)
-        print()
-    else:
-        print(render(result))
+        return 3 if mismatch else 2
+    try:
+        if args.json:
+            json.dump(result, sys.stdout, ensure_ascii=False, indent=1)
+            print()
+        else:
+            print(render(result))
+        sys.stdout.flush()
+    except OSError as e:
+        print("수집 결과를 내지 못함: %s" % (e.strerror or e), file=sys.stderr)
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return 4
     return 0
 
 
