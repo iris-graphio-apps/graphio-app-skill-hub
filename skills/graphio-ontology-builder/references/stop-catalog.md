@@ -1,6 +1,6 @@
 # 멈춤 목록
 
-멈춤과 실패마다 코드, 사람용 문장, 종료 코드를 한 곳에 둔다. 판정·수집·관문·증분·원천 대조 스크립트는 `--json` 옵션이 켜지면 표준 출력에 JSON 하나를 내고, 그 JSON의 `code`와 실행 결과 파일 `stop_reason.code`가 이 표의 코드를 쓴다. 정의 문서 검사기 `check_design_doc.py`의 읽기 실패 JSON에는 `code` 칸이 아직 없다. 같은 종료 코드 1·2라도 어느 스크립트의 어느 자리인지는 `code`로 가른다.
+멈춤과 실패마다 코드, 사람용 문장, 종료 코드를 한 곳에 둔다. 판정·수집·검사·관문·증분·원천 대조·앞 글 유지 확인 스크립트는 `--json` 옵션이 켜지면 표준 출력에 JSON 하나를 내고, 그 JSON의 `code`와 실행 결과 파일 `stop_reason.code`가 이 표의 코드를 쓴다. 같은 종료 코드 1·2라도 어느 스크립트의 어느 자리인지는 `code`로 가른다.
 
 ---
 
@@ -17,15 +17,19 @@
 | COLLECT_INPUT | `collect_findings.py` | 2 | 모든 모드 | 입력 | 수집 입력을 읽지 못함 | add_input | 그때까지 | ⑨ 걸음 4 |
 | GATE_FAILED | `check_design_report.py --stage 설계·확인·검증뒤`(관문 1·2·4) | 1 | 모든 모드 | 스킬 | 관문에서 빠진 칸·어긋난 자리가 나와 다음 단계로 가지 않음(CQ 해시·등급 어긋남은 GATE_CQ_HASH) | retry | 그때까지 | 그 관문 앞 단계 |
 | GATE_CQ_HASH | `check_design_report.py --stage 검증뒤`(관문 4) | 1 | 모든 모드 | 입력 | CQ 문서에서 다시 셈한 번호별 해시·등급이 설계 리포트 4절과 다름 | fix | 그때까지 | `--fix` |
+| CARRY_MISSING | `check_design_report.py --fix-request` | 1 | `--fix` | 스킬 | N차 요청서 6절의 옮겨야 할 행(출처와 상관없이 상태가 적용·적용 안 됨이 아닌 행)이 N+1차 요청서에 옮겨지지 않음 | retry | 그때까지 | 수정 요청서 쓰기 |
 | DESIGN_FIRST_ORDER | `check_design_report.py --stage 검증뒤` | 1 | 1차·`--fix` | 스킬 | 설계 리포트보다 정의 문서를 먼저 고친 자리가 있음(설계 리포트 먼저 차례 위반) | retry | 그때까지 | 설계 리포트 고치기 |
-| GATE_INPUT | `check_design_report.py` | 2 | 모든 모드 | 입력 | 관문 입력이 맞지 않음(파일 없음·UTF-8 아님·입력 해시 다름·리포트 판 행 없음). 「확인 대기」 판 덮어쓰기 거절은 스킬이 실행 결과 파일에 이 코드로 적음(스크립트 검사 자리 없음) | add_input | 그때까지 | ① |
+| GATE_INPUT | `check_design_report.py` | 2 | 모든 모드 | 입력 | 관문 입력이 맞지 않음(파일 없음·UTF-8 아님·입력 해시 다름·리포트 판 행 없음). 「확인 대기」 판 덮어쓰기 거절은 스킬이 실행 결과 파일에 이 코드로 적음(관문 1이 회차 사본 잔존으로 검사: 같은 차수 회차 사본이 있는데 설계 리포트가 어느 사본과도 다른 판이고 12절에 마지막 사본에 없던 ⑥ 답 행도 없으면 이 코드) | add_input | 그때까지 | ① |
+| EXTERNAL_DESIGN_CHANGE | `check_design_report.py --stage 검증뒤` | 2 | `--fix`(정비만 하는 차수 차례 2)·`--verify` | 입력 | 사람이 고친 정의 문서에 설계를 바꾸는 차이가 있어 검사하지 않음. status '입력 필요' | fix | 수정 요청서 사람 요청 행 초안, 외부 수정본 | `--fix` |
+| CARRY_OVER_FINDINGS | `compare_definitions.py` | 1 | `--fix` | 스킬 | 부분 수정한 정의 문서가 연쇄 대상을 빠뜨림 | retry | 그때까지 | ⑨ 걸음 2 앞 |
+| CARRY_OVER_INPUT | `compare_definitions.py` | 2 | `--fix` | 입력 | 맞댈 정의 문서·설계 리포트를 읽지 못함 | add_input | 그때까지 | ⑨ 걸음 2 앞 |
 | SOURCE_MISMATCH | `source_match.py` | 1 | 모든 모드 | 스킬 | 설계 리포트 4.2절 근거 위치가 원천 문서 글자와 맞지 않음 | retry | 그때까지 | ②-1 |
 | SOURCE_INPUT | `source_match.py` | 2 | 모든 모드 | 입력 | 원천 문서·설계 리포트를 읽지 못함 | add_input | 그때까지 | ②-1 |
 | DELTA_CONDITION | `input_delta.py` | 1 | 1차 | 입력 | CQ 문서 변경이 부합 조건에 걸려 증분 반영을 하지 않음 | regenerate | 그때까지 | ① |
 | DELTA_INPUT | `input_delta.py` | 2 | 1차 | 입력 | 입력 사본을 읽지 못함(사본 없음·UTF-8 아님) | add_input | 그때까지 | ① |
 | SKILL_UNEXPECTED | 모든 스크립트 | 3 | 모든 모드 | 스킬 | 스크립트가 예상하지 못한 오류로 멈춤 | handover | 그때까지 | 없음 |
 | SKILL_VERSION_MISMATCH | `collect_findings.py`·`judge_structure.py`(`MISMATCH_HINT`·`MismatchError`) | 3 | 모든 모드 | 스킬 | 스킬 스크립트·규칙 목록 문서의 판본이 맞지 않음 | handover | 그때까지 | 없음 |
-| OUTPUT_WRITE_FAILED | 출력 파일을 쓰는 스크립트(`OSError`) | 4 | 모든 모드 | 실행 환경 | 출력 파일을 쓰지 못함 | retry | 그때까지 | 그 단계 |
+| OUTPUT_WRITE_FAILED | 출력을 쓰는 스크립트(출력 파일·표준 출력, `OSError`) | 4 | 모든 모드 | 실행 환경 | 출력 파일을 쓰지 못함 | retry | 그때까지 | 그 단계 |
 | HUMAN_STOP | (스크립트 아님, 실행 결과 파일 `stop_reason.code`) | 1 | 모든 모드 | 사람 판단 | 사람이 실행을 중단함. status '중단' | stop | 그때까지 | 없음 |
 
 - 까닭 쪽은 입력·스킬·실행 환경·사람 판단 넷 가운데 하나다
@@ -45,8 +49,8 @@
 | 종료 코드 | 뜻 | 실행 결과 파일 status |
 |---|---|---|
 | 0 | 완료 | 완료 |
-| 1 | 검사·판정은 끝났고 결과가 다음 단계로 가지 못함. 오류가 아님(판정 '확정 불가', 관문 빠짐·어긋남, 검사기 Error 있음, 설계 리포트 먼저 차례 위반, 사람 중단) | 완료. 사람 중단이면 중단 |
-| 2 | 입력 쪽 멈춤(파일 없음·UTF-8 아님·입력 해시 다름·리포트 판 행 없음) | 입력 필요 |
+| 1 | 검사·판정은 끝났고 결과가 다음 단계로 가지 못함. 오류가 아님(판정 '확정 불가', 관문 빠짐·어긋남, 검사기 Error 있음, 요청서 옮김 누락, 설계 리포트 먼저 차례 위반, 앞 글 유지 확인 지적 있음, 사람 중단) | 완료. 사람 중단이면 중단 |
+| 2 | 입력 쪽 멈춤(파일 없음·UTF-8 아님·입력 해시 다름·리포트 판 행 없음, 외부 설계 변경 멈춤 포함) | 입력 필요 |
 | 3 | 스킬 쪽 실패(예상 밖 예외, 스킬 판본 문제) | 실패(스킬 쪽) |
-| 4 | 출력 파일 쓰기 실패(`OSError`). 스크립트는 이 경우에만 4를 냄 | 실패(환경) |
+| 4 | 출력 쓰기 실패(파일·표준 출력, `OSError`). 스크립트는 이 경우에만 4를 냄 | 실패(환경) |
 | 10 | 멈춤 대기. 스크립트는 내지 않고 실행 결과 파일 status로만 씀 | 멈춤 대기 |

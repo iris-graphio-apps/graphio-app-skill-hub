@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """설계 리포트 읽기·비교·맞대기 공용 모듈. 도구가 아니다.
-check_design_report.py, judge_structure.py --design-report, source_match.py, input_delta.py 가 불러 쓴다.
+check_design_report.py, judge_structure.py --design-report, compare_definitions.py, source_match.py, input_delta.py 가
+불러 쓴다.
 
 정의 문서 읽기 공용 모듈 definition_index.py 처럼 설계 리포트를 읽는 코드를 한 곳에 둔다. 표준 출력·출력 파일·
 종료 코드가 없다. 읽지 못하거나 부르는 절·칸이 없으면 ReportError 를 올리고, 종료 코드는 부르는 쪽이 정한다.
@@ -664,10 +665,12 @@ def _find(head, words, exact=()):
     return None
 
 
-def read_cq_rows(path):
+def read_cq_rows(path, previous=None):
     """CQ 문서의 질문 행 [CQRow]. 질문 칸이 있는 표를 읽고, 등급 칸이 있는 질문 표가 있으면 그 표들만 읽는다.
     번호 칸이 없거나 빈 행은 받은 차례대로 Q1·Q2 … 를 매기고, 그 문서가 이미 Q 로 시작하는 번호를 쓰면 N1·N2 …
-    로 매긴다. 질문 표가 없으면 번호로 시작하는 줄('Q1. 질문' 꼴)을 읽는다. 읽지 못하면 ReportError."""
+    로 매긴다. 질문 표가 없으면 번호로 시작하는 줄('Q1. 질문' 꼴)을 읽는다. 읽지 못하면 ReportError.
+    previous({문장 해시 앞 12자: 번호}, 앞 차수 설계 리포트 4절 칸을 cq_previous 로 뒤집은 것)를 주면 번호 없는 행은
+    문장이 같은 앞 차수 번호를 잇고, 새 문장은 앞 차수와 이번에 매긴 번호 가운데 가장 큰 수 다음부터 매긴다."""
     try:
         lines = di.read_text(path).splitlines()
     except di.ReadError as e:
@@ -702,35 +705,52 @@ def read_cq_rows(path):
         pat = re.compile(r"^\s*(?:[-*]\s+)?(?:\*\*)?([A-Za-z]+-?\d+)(?:\*\*)?[.:)]?\s+(.+?)\s*$")
         raw = [[m.group(1), m.group(2), "-", i + 1] for i, ln in enumerate(lines) if (m := pat.match(ln))]
     prefix = "N" if any(no.upper().startswith("Q") for no, _, _, _ in raw if no) else "Q"
-    out, n = [], 0
+    return _number(previous, prefix, raw)
+
+
+def cq_previous(cells):
+    """설계 리포트 4절 {번호: '해시/등급'} → {해시 앞 12자: 번호}. 번호 없는 CQ 문서의 번호 잇기(read_cq_rows
+    previous)에 쓴다. 자리표시만 남은 칸은 넣지 않는다."""
+    return {v.split("/", 1)[0].strip(): no for no, v in cells.items() if v and v != FILL and "/" in v}
+
+
+def _number(previous, prefix, raw):
+    """번호 없는 행에 앞 차수 번호를 잇고, 새 문장은 가장 큰 수 다음부터 매긴다. 같은 차수에 사라진 번호는 다시
+    쓰지 않는다(previous 의 가장 큰 수 다음부터 매기므로). 앞 차수에서 이미 뺀 번호는 previous 에 없어 다시 쓰일 수
+    있다. 문장을 고친 질문은 새 번호를 받는다. previous 가 없으면(1차) 받은 차례대로다."""
+    used = set((previous or {}).values())
+    n = max((int(no[len(prefix):]) for no in used if no.startswith(prefix) and no[len(prefix):].isdigit()), default=0)
+    out = []
     for no, text, grade, line in raw:
         by_skill = not no
         if by_skill:
-            n += 1
-            no = "%s%d" % (prefix, n)
+            no = (previous or {}).get(sha12_text(text))
+            if not no:
+                n += 1
+                no = "%s%d" % (prefix, n)
         out.append(CQRow(no, text, grade, by_skill, line))
     return out
 
 
-def cq_duplicates(cq_paths):
-    """여러 CQ 문서에 겹친 번호의 {번호: [문서 이름]}. 문서 이름 차례로 둔다."""
+def cq_duplicates(cq_paths, previous=None):
+    """여러 CQ 문서에 겹친 번호의 {번호: [문서 이름]}. 문서 이름 차례로 둔다. previous 는 read_cq_rows 와 같다."""
     seen = {}
     for path in sorted(cq_paths, key=os.path.basename):
-        for r in read_cq_rows(path):
+        for r in read_cq_rows(path, previous):
             names = seen.setdefault(r.no, [])
             if os.path.basename(path) not in names:
                 names.append(os.path.basename(path))
     return {no: names for no, names in seen.items() if len(names) > 1}
 
 
-def cq_hashes(cq_paths):
+def cq_hashes(cq_paths, previous=None):
     """CQ 문서들을 직접 읽어 {CQ 번호: '문장 해시 앞 12자/등급'}. 등급이 없으면 빗금 뒤가 '-' 다.
     여러 문서에 같은 번호가 있으면 문서 이름 차례로 둘째 문서부터 '번호(문서 이름)' 으로 가른다.
-    한 문서 안에 같은 번호가 또 나오면 앞 행을 쓴다."""
+    한 문서 안에 같은 번호가 또 나오면 앞 행을 쓴다. previous 는 read_cq_rows 와 같다(번호 없는 문서의 번호 잇기)."""
     out = {}
     for path in sorted(cq_paths, key=os.path.basename):
         name = os.path.basename(path)
-        for r in read_cq_rows(path):
+        for r in read_cq_rows(path, previous):
             key = r.no if r.no not in out or name == _owner(out, r.no) else "%s(%s)" % (r.no, name)
             out.setdefault(key, (r.value(), name))
     return {k: v for k, (v, _) in out.items()}
@@ -759,9 +779,11 @@ def cq_change(kept, now):
 
 
 def cq_hash_diff(rep, cq_paths):
-    """CQ 문서를 다시 셈한 번호별 '해시/등급' 이 4절 CQ 행 칸과 다른 CQ 번호 목록(정렬)."""
-    now = cq_hashes(cq_paths)
-    kept = rep.cells("4", CQ_COL, cq_duplicates(cq_paths))
+    """CQ 문서를 다시 셈한 번호별 '해시/등급' 이 4절 CQ 행 칸과 다른 CQ 번호 목록(정렬). 번호 없는 CQ 문서는 4절 칸에
+    적힌 번호를 이어 매긴다(관문 1이 이은 번호를 그대로 씀)."""
+    previous = cq_previous(rep.cells("4", CQ_COL))
+    now = cq_hashes(cq_paths, previous)
+    kept = rep.cells("4", CQ_COL, cq_duplicates(cq_paths, previous))
     return sorted(k for k in set(now) | set(kept) if cq_change(kept.get(k), now.get(k)))
 
 

@@ -35,12 +35,20 @@
 
 문서를 읽지 못하면 --json 은 {"읽힘": false, "까닭", "문서", "경로", "문제"} 를 낸다.
 문서는 '정의 문서'·'원천 구조 문서', 문제는 '파일 없음'·'UTF-8로 읽을 수 없음'·'읽기 실패'·'개념 없음'
-가운데 하나다.
+가운데 하나다. 읽지 못하거나 개념을 찾지 못한 경우에는 멈춤 목록(references/stop-catalog.md) 칸 code(DOC_INPUT)·
+message_ko·model_hint 가 더 붙는다.
 
-종료 코드(결정 32 첫 판과 같은 뜻): 0 Error 없음, 1 Error 있음(검사를 마침, 오류 아님), 2 문서를 읽지 못함(입력 쪽 멈춤, 개념을 찾지 못한 경우 포함), 3 검사기가 예상하지 못한 오류(스킬 쪽 실패).
+검사를 마친 --json({"읽힘": true, "통계", "걸린 것"})에도 멈춤 목록의 세 칸이 더 붙는다. Error 가 있으면 code 는
+DOC_ERRORS, message_ko 는 '정의 문서 검사에서 Error n건', model_hint 는 '⑨ 걸음 3에서 Error를 고친 뒤 다시 검사'다.
+Error 가 없으면 code·model_hint 는 null 이고 message_ko 는 '정의 문서 검사에서 Error 없음'이다.
+검사기가 예상하지 못한 오류로 멈추면 --json 은 {"읽힘": false} 에 code(SKILL_UNEXPECTED)·message_ko·model_hint 를
+붙여 낸다. 인자를 해석하기 전에 난 오류면 JSON 을 내지 않는다.
+
+종료 코드(멈춤 목록 3장과 같은 뜻): 0 Error 없음, 1 Error 있음(검사를 마침, 오류 아님), 2 문서를 읽지 못함(입력 쪽 멈춤, 개념을 찾지 못한 경우 포함), 3 검사기가 예상하지 못한 오류(스킬 쪽 실패), 4 출력 쓰기 실패(`--json` 표준 출력).
 """
 import argparse
 import json
+import os
 import re
 import sys
 
@@ -62,6 +70,8 @@ ABSENT = re.compile(r"(아직\s*(없|등록되지)|존재하지\s*않|전처리�
 MT_MARK = re.compile(r"MT-\d{2}")      # 채택한 매핑 테이블 표지. 설계 리포트 7.1절의 MT 번호
 KIND_KEYS = ("종류", "metatypekind", "kind")      # Meta Type 종류 줄 키. 변환 스크립트 BULLET["kind"] 별칭과 같다
 EXCERPT = 60    # 발췌 길이(글자). 넘치면 줄이고 … 를 붙인다
+EXIT_ENV = 4    # 출력 쓰기 실패(`--json` 표준 출력)
+JSON_OUT = False    # --json 여부. 인자 해석 뒤 main() 이 정하고, 예상하지 못한 오류 처리가 읽는다
 
 
 def read_blocks(lines):
@@ -510,13 +520,30 @@ def check(lines, blocks, idx, mark, source):
     return findings
 
 
-def unreadable(args, doc, path, problem, detail=""):
-    """문서를 읽지 못해 멈춘다. --json 이면 수집 스크립트가 알아볼 꼴로 낸다."""
-    if args.json:
-        json.dump({"읽힘": False, "까닭": "%s를 읽지 못함: %s (%s)" % (doc, path, problem),
-                   "문서": doc, "경로": path, "문제": problem},
-                  sys.stdout, ensure_ascii=False)
+def write_json(body):
+    """--json 결과를 표준 출력에 하나 쓴다. 읽는 쪽이 먼저 닫힌 파이프 같은 쓰기 실패면 표준 오류 한 줄을 내고 False.
+    표준 출력을 os.devnull 로 돌려 해석기가 끝날 때 버퍼를 다시 비우다 실패하지 않게 한다."""
+    try:
+        json.dump(body, sys.stdout, ensure_ascii=False)
         print()
+        sys.stdout.flush()
+    except OSError as err:      # 읽는 쪽이 먼저 닫힌 파이프 → 종료 코드 4
+        print("정의 문서 검사 결과를 내지 못함: %s" % (err.strerror or err), file=sys.stderr)
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return False
+    return True
+
+
+def unreadable(args, doc, path, problem, detail=""):
+    """문서를 읽지 못해 멈춘다. --json 이면 수집 스크립트가 알아볼 꼴로 낸다.
+    기존 다섯 칸(읽힘·까닭·문서·경로·문제)은 수집 스크립트가 읽으므로 그대로 두고, 멈춤 목록의 세 칸
+    (code·message_ko·model_hint)을 더한다. model_hint 는 읽지 못한 문서 이름을 넣어 그 문서를 고치라고 안내한다."""
+    if args.json:
+        why = "%s를 읽지 못함: %s (%s)" % (doc, path, problem)
+        if not write_json({"읽힘": False, "까닭": why, "문서": doc, "경로": path, "문제": problem,
+                           "code": "DOC_INPUT", "message_ko": why,
+                           "model_hint": "%s 경로나 인코딩을 고친 뒤 다시 수행" % doc}):
+            return EXIT_ENV
     else:
         print("%s를 읽지 못했다: %s (%s)" % (doc, path, problem + (": " + detail if detail else "")),
               file=sys.stderr)
@@ -538,6 +565,8 @@ def main():
     ap.add_argument("--json", action="store_true",
                     help="검사 결과와 통계를 JSON 으로 낸다. 수집 스크립트가 읽는다")
     args = ap.parse_args()
+    global JSON_OUT
+    JSON_OUT = args.json
 
     try:
         text = di.read_text(args.path)
@@ -547,11 +576,12 @@ def main():
     blocks = read_blocks(lines)
 
     if not blocks:
-        if args.json:
-            json.dump({"읽힘": False, "까닭": "Object Type 절에서 개념을 찾지 못함",
-                       "문서": "정의 문서", "경로": args.path, "문제": "개념 없음"},
-                      sys.stdout, ensure_ascii=False)
-            print()
+        if args.json:  # 기존 다섯 칸은 그대로 두고 읽기 실패 JSON 과 같은 멈춤 목록의 세 칸을 더한다
+            why = "Object Type 절에서 개념을 찾지 못함"
+            if not write_json({"읽힘": False, "까닭": why, "문서": "정의 문서", "경로": args.path, "문제": "개념 없음",
+                               "code": "DOC_INPUT", "message_ko": why,
+                               "model_hint": "정의 문서에 개념 블록이 있는지 확인한 뒤 다시 수행"}):
+                return EXIT_ENV
         else:
             print("Object Type 절에서 개념을 찾지 못했다. 절 제목을 확인한다.")
         return 2
@@ -579,9 +609,13 @@ def main():
     warns = [f for f in findings if f["등급"] == "경고"]
     notes = [f for f in findings if f["등급"] == "확인"]
 
-    if args.json:
-        json.dump({"읽힘": True, "통계": st, "걸린 것": findings}, sys.stdout, ensure_ascii=False)
-        print()
+    if args.json:  # 기존 세 칸(읽힘·통계·걸린 것)은 그대로 두고 멈춤 목록의 세 칸을 더한다
+        if not write_json({"읽힘": True, "통계": st, "걸린 것": findings,
+                           "code": "DOC_ERRORS" if errors else None,
+                           "message_ko": "정의 문서 검사에서 Error %d건" % len(errors) if errors
+                           else "정의 문서 검사에서 Error 없음",
+                           "model_hint": "⑨ 걸음 3에서 Error를 고친 뒤 다시 검사" if errors else None}):
+            return EXIT_ENV
         return 1 if errors else 0
 
     print("검사 대상: %s   (경고 기호 %s)\n" % (args.path, args.warn_mark))
@@ -611,6 +645,10 @@ def main():
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except Exception as e:      # 처리하지 못한 예외가 종료 코드 1(Error 있음)로 읽히지 않게 3 으로 끝낸다(결정 32)
-        print("검사하지 않음: 정의 문서 검사기가 예상하지 못한 오류로 멈춤(%s: %s)" % (type(e).__name__, e), file=sys.stderr)
+    except Exception as e:      # 처리하지 못한 예외가 종료 코드 1(Error 있음)로 읽히지 않게 3 으로 끝낸다
+        why = "검사하지 않음: 정의 문서 검사기가 예상하지 못한 오류로 멈춤(%s: %s)" % (type(e).__name__, e)
+        print(why, file=sys.stderr)
+        if JSON_OUT:    # 인자 해석이 끝난 뒤의 오류만. 옵션 오류는 argparse 가 2로 끝내고, 인자 해석 전의 예외는 JSON 없이 3
+            write_json({"읽힘": False, "code": "SKILL_UNEXPECTED", "message_ko": why,
+                        "model_hint": "입력이나 옵션으로 풀리지 않는다. 스크립트를 고치지 말고 사용자에게 알린다"})
         sys.exit(3)

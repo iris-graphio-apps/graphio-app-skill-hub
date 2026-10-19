@@ -10,7 +10,7 @@
     python3 input_delta.py check <설계 리포트> --before <설계-리포트-증분앞.md>
 
 종료 코드: 0 통과, 1 조건에 걸림(①부터 다시), 2 입력 쪽 멈춤, 3 처리하지 못한 예외.
-입력-사본/ 아래 출력 파일을 쓰지 못하면 4(멈춤 목록의 출력 파일 쓰기 실패와 같은 뜻)다.
+입력-사본/ 아래 출력 파일이나 표준 출력(--json)을 쓰지 못하면 4(멈춤 목록의 출력 쓰기 실패와 같은 뜻)다.
 
 하위 명령과 부합 조건(조건 번호 뒤 괄호가 그 조건의 뜻이다)
 
@@ -815,19 +815,33 @@ def emit(args, out):
         body = {"code": STOP_CODE.get(code), "passed": code == EXIT_PASS, "message_ko": message, "model_hint": hint,
                 "detail": {"종료 코드": code, "하위 명령": args.cmd}}
         body.update(data)
-        json.dump(body, sys.stdout, ensure_ascii=False)
-        print()
+        if not write_stdout_json(body):
+            return EXIT_ENV
     else:
         print("\n".join(lines))
     return code
 
 
+def write_stdout_json(body):
+    """표준 출력에 JSON 하나를 쓴다. 읽는 쪽이 먼저 닫힌 파이프 같은 쓰기 실패면 표준 오류 한 줄을 내고 False.
+    표준 출력을 os.devnull 로 돌려 해석기가 끝날 때 버퍼를 다시 비우다 실패하지 않게 한다."""
+    try:
+        json.dump(body, sys.stdout, ensure_ascii=False)
+        print()
+        sys.stdout.flush()
+    except OSError as err:  # 읽는 쪽이 먼저 닫힌 파이프 → 종료 코드 4
+        print("증분 반영 결과를 내지 못함: %s" % (err.strerror or err), file=sys.stderr)
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return False
+    return True
+
+
 def fail_out(args, code, message, detail):
     if getattr(args, "json", False):
-        json.dump({"code": STOP_CODE[code], "passed": False, "message_ko": message, "model_hint": HINT[code],
-                   "detail": {"종료 코드": code, "하위 명령": getattr(args, "cmd", None), "까닭": detail}},
-                  sys.stdout, ensure_ascii=False)
-        print()
+        body = {"code": STOP_CODE[code], "passed": False, "message_ko": message, "model_hint": HINT[code],
+                "detail": {"종료 코드": code, "하위 명령": getattr(args, "cmd", None), "까닭": detail}}
+        if not write_stdout_json(body):
+            return EXIT_ENV
     else:
         print(message, file=sys.stderr)
     return code

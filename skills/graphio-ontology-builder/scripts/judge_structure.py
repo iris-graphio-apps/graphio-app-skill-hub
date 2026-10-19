@@ -39,7 +39,7 @@ CQ 문서가 CQ에 등급을 매겼으면 어느 말을 필수로 볼지 --requi
 
 입력을 읽지 못하거나 맞지 않으면 판정 문서를 쓰지 않고 멈춘다. 읽지 못한 채 판정하면 Error가 빠진
 문서가 「확정 가능」 으로 나가기 때문이다.
-종료 코드: 0 확정 가능, 1 확정 불가·관문 어긋남, 2 입력 쪽 멈춤(판정하지 않음), 3 스킬 쪽 실패, 4 판정 문서 쓰기 실패.
+종료 코드: 0 확정 가능, 1 확정 불가·관문 어긋남, 2 입력 쪽 멈춤(판정하지 않음), 3 스킬 쪽 실패, 4 출력 쓰기 실패(파일·표준 출력).
 
 문서의 꼴과 문체는 references/report-conventions.md 를 따른다.
 """
@@ -1555,6 +1555,20 @@ def report(args, rules, critical, major, leave, unchecked, counted, info, cmp):
     return "\n".join(p)
 
 
+def write_json(body):
+    """--json 결과를 표준 출력에 하나 쓴다. 읽는 쪽이 먼저 닫힌 파이프 같은 쓰기 실패면 표준 오류 한 줄을 내고 False.
+    표준 출력을 os.devnull 로 돌려 해석기가 끝날 때 버퍼를 다시 비우다 실패하지 않게 한다."""
+    try:
+        json.dump(body, sys.stdout, ensure_ascii=False)
+        print()
+        sys.stdout.flush()
+    except OSError as err:      # 읽는 쪽이 먼저 닫힌 파이프 → 종료 코드 4
+        print("판정 결과를 내지 못함: %s" % (err.strerror or err), file=sys.stderr)
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return False
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="온톨로지 구조를 확정해도 되는지 판정한다. Error가 0건이면 확정한다.")
@@ -1631,7 +1645,7 @@ def main():
                     f.write(text + "\n")
             except OSError as e:
                 raise OutputError("판정 문서를 쓰지 못함: %s (%s)" % (args.out, e.strerror or e), "-o 경로")
-    except Exception as e:      # 관문 어긋남 1, 입력 쪽 멈춤 2, 스킬 쪽 실패 3, 판정 문서 쓰기 실패 4 로 끝낸다. 판정 '확정 불가' 도 1 이며 멈춤 JSON code 로 가른다
+    except Exception as e:      # 관문 어긋남 1, 입력 쪽 멈춤 2, 스킬 쪽 실패 3, 출력 쓰기 실패 4 로 끝낸다. 판정 '확정 불가' 도 1 이며 멈춤 JSON code 로 가른다
         if isinstance(e, InputError):
             print("판정하지 않음: %s" % e, file=sys.stderr)
             print("고칠 곳: %s" % e.fix, file=sys.stderr)
@@ -1651,11 +1665,11 @@ def main():
         stop_code = (getattr(e, "code", None)
                      or ("SKILL_VERSION_MISMATCH" if isinstance(e, InputError) and e.fix == cf.MISMATCH_HINT
                          else STOP_CODE[code]))
-        if args.json:
-            json.dump({"code": stop_code, "message_ko": str(e),
-                       "model_hint": e.fix if isinstance(e, InputError) else "스크립트를 고치지 말고 사용자에게 알림",
-                       "detail": {"종료 코드": code, "판정 문서": args.out}}, sys.stdout, ensure_ascii=False)
-            print()
+        if args.json and not write_json({"code": stop_code, "message_ko": str(e),
+                                         "model_hint": e.fix if isinstance(e, InputError)
+                                         else "스크립트를 고치지 말고 사용자에게 알림",
+                                         "detail": {"종료 코드": code, "판정 문서": args.out}}):
+            return 4
         return code
 
     code = 1 if critical else 0
@@ -1666,10 +1680,9 @@ def main():
                   "판정 문서": args.out}
         if not args.out:
             detail["판정 문서 본문"] = text
-        json.dump({"code": STOP_CODE.get(code), "message_ko": summary,
-                   "model_hint": " / ".join(follow_ups(critical, major, unchecked)), "detail": detail},
-                  sys.stdout, ensure_ascii=False)
-        print()
+        if not write_json({"code": STOP_CODE.get(code), "message_ko": summary,
+                           "model_hint": " / ".join(follow_ups(critical, major, unchecked)), "detail": detail}):
+            return 4
     elif args.out:
         print(summary)
         if args.previous:

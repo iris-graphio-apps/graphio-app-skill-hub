@@ -46,7 +46,7 @@
 
 종료 코드(멈춤 목록과 같은 뜻): 0 모두 맞음, 1 어긋난 행 있음('확인 필요' 포함, 오류 아님),
 2 입력 쪽 멈춤(설계 리포트·원천 문서·정의 문서를 UTF-8로 읽지 못함, 4.2절 표나 칸 이름이 없음),
-3 처리하지 못한 예외(스킬 쪽 실패).
+3 처리하지 못한 예외(스킬 쪽 실패), 4 출력 쓰기 실패(표준 출력).
 """
 import argparse
 import json
@@ -70,7 +70,7 @@ MAKE = "만듦"
 KEEP_OUT = ("빼고 보고", "빼고 보고(후보 미채택)")  # 처리 칸은 글자 전체로 읽음
 UNSURE = "확인 필요"
 
-CODES = {1: "SOURCE_MISMATCH", 2: "SOURCE_INPUT", 3: "SKILL_UNEXPECTED"}
+CODES = {1: "SOURCE_MISMATCH", 2: "SOURCE_INPUT", 3: "SKILL_UNEXPECTED", 4: "OUTPUT_WRITE_FAILED"}
 
 
 class InputError(Exception):
@@ -285,22 +285,30 @@ def stopped(code, message, hint, detail):
 
 
 def emit(args, res):
-    if args.json:
-        json.dump(res, sys.stdout, ensure_ascii=False, indent=1)
-        print()
-        return
-    if res["code"] in (CODES[2], CODES[3]):
-        print("대조하지 않음: %s" % res["message_ko"], file=sys.stderr)
-        print(res["model_hint"], file=sys.stderr)
-        return
-    print(res["message_ko"])
-    if res["rows"]:
-        print()
-        print("| 4.2절 No. | 대조 종류 | 결과 | 원천 위치 |")
-        print("|---|---|---|---|")
-        for r in res["rows"]:
-            print("| %s |" % " | ".join(str(r[k]).replace("|", "\\|")
-                                        for k in ("No.", "대조 종류", "결과", "원천 위치")))
+    """결과를 낸다(--json 이면 표준 출력에 JSON 하나, 아니면 사람용 줄). 읽는 쪽이 먼저 닫힌 파이프 같은 쓰기 실패면
+    표준 오류 한 줄을 내고 False. 표준 출력을 os.devnull 로 돌려 해석기가 끝날 때 버퍼를 다시 비우다 실패하지 않게 한다."""
+    try:
+        if args.json:
+            json.dump(res, sys.stdout, ensure_ascii=False, indent=1)
+            print()
+        elif res["code"] in (CODES[2], CODES[3]):
+            print("대조하지 않음: %s" % res["message_ko"], file=sys.stderr)
+            print(res["model_hint"], file=sys.stderr)
+        else:
+            print(res["message_ko"])
+            if res["rows"]:
+                print()
+                print("| 4.2절 No. | 대조 종류 | 결과 | 원천 위치 |")
+                print("|---|---|---|---|")
+                for r in res["rows"]:
+                    print("| %s |" % " | ".join(str(r[k]).replace("|", "\\|")
+                                                for k in ("No.", "대조 종류", "결과", "원천 위치")))
+        sys.stdout.flush()
+    except OSError as err:      # 읽는 쪽이 먼저 닫힌 파이프 → 종료 코드 4
+        print("원천 대조 결과를 내지 못함: %s" % (err.strerror or err), file=sys.stderr)
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return False
+    return True
 
 
 def main():
@@ -326,7 +334,8 @@ def main():
                       "입력이나 옵션으로 풀리지 않는다. 스크립트를 고치지 말고 사용자에게 알린다",
                       {"예외": type(e).__name__})
         code = 3
-    emit(args, res)
+    if not emit(args, res):
+        return 4
     return code
 
 
