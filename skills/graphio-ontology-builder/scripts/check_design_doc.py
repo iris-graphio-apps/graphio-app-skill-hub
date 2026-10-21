@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""온톨로지 정의 문서에서 '오류 없이 사라지는 것'을 찾는다.
+"""온톨로지 정의 문서에서 변환 스크립트가 오류 없이 빠뜨리거나 잘못 옮기는 줄을 찾는다.
 
-변환 스크립트는 서식 오류를 잡는다. 이 스크립트는 서식은 맞는데
-내용이 새어 나가는 자리를 잡는다 — 오류가 나지 않아 아무도 모르는 것들이다.
+변환 스크립트는 서식 오류를 잡는다. 이 스크립트는 서식은 맞는데 변환 스크립트가 오류 없이 정의 파일에
+옮기지 않거나 다른 칸에 옮기는 줄을 잡는다. 변환 스크립트와 규격 검사기가 오류를 내지 않으므로
+이 검사가 없으면 드러나지 않는 것들이다.
 
     python3 check_design_doc.py <온톨로지-정의.md>
 
@@ -16,7 +17,7 @@
 
     python3 check_design_doc.py <문서.md> --source <원천 구조 문서> [...]
 
-지적마다 규칙 번호(DOC-01~09, DOC-11)를 붙인다. 규칙의 이름과 등급은 references/검사-규칙.md 에 있다.
+지적마다 규칙 번호(DOC-01~09, DOC-11)를 붙인다. 규칙의 이름과 등급은 references/rule-catalog.md 에 있다.
 '확인 필요' 표기(DOC-10)는 건수만 세는 규칙이라 지적으로 내지 않고 --stats 통계로 낸다.
 지적은 규칙 번호, 줄 번호, 발췌 차례로 낸다. 같은 입력이면 늘 같은 출력이다.
 
@@ -30,16 +31,24 @@
               DOC-05 '읽히지 않는 설명'은 문제가 된 줄 자체다
     발췌      문제를 보이는 원문 조각. 발생 경로로 쓴다. 발췌 줄은 그 조각이 있는 줄이다
     등급·자리·무엇·어떻게·종류   앞 판의 칸. 앞 판과 맞추려고 한동안 둔다. 등급 값도 앞 판의 오류·경고·확인이다.
-              스킬 스크립트는 이 칸들을 읽지 않는다. 등급은 규칙 번호로 references/검사-규칙.md 에서 찾는다
+              스킬 스크립트는 이 칸들을 읽지 않는다. 등급은 규칙 번호로 references/rule-catalog.md 에서 찾는다
 
 문서를 읽지 못하면 --json 은 {"읽힘": false, "까닭", "문서", "경로", "문제"} 를 낸다.
 문서는 '정의 문서'·'원천 구조 문서', 문제는 '파일 없음'·'UTF-8로 읽을 수 없음'·'읽기 실패'·'개념 없음'
-가운데 하나다.
+가운데 하나다. 읽지 못하거나 개념을 찾지 못한 경우에는 멈춤 목록(references/stop-catalog.md) 칸 code(DOC_INPUT)·
+message_ko·model_hint 가 더 붙는다.
 
-종료 코드: 0 Error 없음, 1 Error 있음, 2 문서를 읽지 못함(개념을 찾지 못한 경우 포함).
+검사를 마친 --json({"읽힘": true, "통계", "걸린 것"})에도 멈춤 목록의 세 칸이 더 붙는다. Error 가 있으면 code 는
+DOC_ERRORS, message_ko 는 '정의 문서 검사에서 Error n건', model_hint 는 '⑨ 걸음 3에서 Error를 고친 뒤 다시 검사'다.
+Error 가 없으면 code·model_hint 는 null 이고 message_ko 는 '정의 문서 검사에서 Error 없음'이다.
+검사기가 예상하지 못한 오류로 멈추면 --json 은 {"읽힘": false} 에 code(SKILL_UNEXPECTED)·message_ko·model_hint 를
+붙여 낸다. 인자를 해석하기 전에 난 오류면 JSON 을 내지 않는다.
+
+종료 코드(멈춤 목록 3장과 같은 뜻): 0 Error 없음, 1 Error 있음(검사를 마침, 오류 아님), 2 문서를 읽지 못함(입력 쪽 멈춤, 개념을 찾지 못한 경우 포함), 3 검사기가 예상하지 못한 오류(스킬 쪽 실패), 4 출력 쓰기 실패(`--json` 표준 출력).
 """
 import argparse
 import json
+import os
 import re
 import sys
 
@@ -58,7 +67,11 @@ FOUR_SECTIONS = {"objecttype", "오브젝트타입", "linktype", "링크타입",
 PAIR = re.compile(r"아니라\s*(\S+?)\s*(?:을|를)\s*(?:써야|사용)")
 # 데이터 구조 설명에 대상 환경에 아직 없다고 적은 표지
 ABSENT = re.compile(r"(아직\s*(없|등록되지)|존재하지\s*않|전처리가\s*(필요|선행)|만들어야|생성해야)")
+MT_MARK = re.compile(r"MT-\d{2}")      # 채택한 매핑 테이블 표지. 설계 리포트 7.1절의 MT 번호
+KIND_KEYS = ("종류", "metatypekind", "kind")      # Meta Type 종류 줄 키. 변환 스크립트 BULLET["kind"] 별칭과 같다
 EXCERPT = 60    # 발췌 길이(글자). 넘치면 줄이고 … 를 붙인다
+EXIT_ENV = 4    # 출력 쓰기 실패(`--json` 표준 출력)
+JSON_OUT = False    # --json 여부. 인자 해석 뒤 main() 이 정하고, 예상하지 못한 오류 처리가 읽는다
 
 
 def read_blocks(lines):
@@ -97,8 +110,12 @@ def read_blocks(lines):
 
 
 def meta_types(lines):
-    """Meta Type 절의 (이름, 줄번호, 설명, 설명 줄번호) 를 모은다."""
-    out, sec, cur = [], None, None
+    """Meta Type 절의 (이름, 줄번호, 설명, 설명 줄번호, 종류) 를 모은다. 종류 줄이 없으면 종류는 빈 값이다.
+
+    종류는 '- 종류:' 줄을 변환 스크립트가 읽는 자리, 곧 블록 제목 뒤 첫 표·제목 줄 앞에서만 읽는다.
+    그 뒤에 적은 종류 줄은 변환 결과에 들지 않으므로 종류가 없는 것으로 본다.
+    """
+    out, sec, cur, head = [], None, None, False
     for i, raw in enumerate(lines):
         line = raw.rstrip("\n")
         m = re.match(r"^##\s+(?!#)(.+?)\s*$", line)
@@ -109,13 +126,20 @@ def meta_types(lines):
             continue
         m = re.match(r"^###\s+(.+?)\s*$", line)
         if m and sec:
-            cur = [m.group(1).strip(), i + 1, "", None]
+            cur, head = [m.group(1).strip(), i + 1, "", None, ""], True
             out.append(cur)
             continue
         if cur is not None:
-            m = re.match(r"^[-*]\s*(설명|description|desc)\s*[:：]\s*(.*)$", line.strip(), re.I)
+            s = line.strip()
+            if s.startswith("|") or s.startswith("#"):
+                head = False        # 첫 표·제목 줄부터는 변환 스크립트가 '- 키:' 줄을 읽지 않는다
+            m = re.match(r"^[-*]\s*(설명|description|desc)\s*[:：]\s*(.*)$", s, re.I)
             if m:
                 cur[2], cur[3] = m.group(2).strip(), i + 1
+            # 종류 줄. 키는 변환 스크립트 BULLET["kind"] 별칭(종류·metatypekind·kind)과 같게 공백·기호·대소문자를 가리지 않는다
+            m = re.match(r"^[-*]\s*([^:：]+)[:：]\s*(.*)$", s)
+            if m and head and re.sub(r"[\s\-_·.]", "", m.group(1)).lower() in KIND_KEYS:
+                cur[4] = m.group(2).strip()
     return [tuple(x) for x in out]
 
 
@@ -289,7 +313,7 @@ def check(lines, blocks, idx, mark, source):
                          "규칙": rule, "경우": case, "위치": idx.locate_line(line), "줄": line,
                          "발췌": excerpt, "발췌 줄": at})
 
-    # DOC-01 설명 줄에서 떨어져 나간 줄 — 변환할 때 조용히 버려진다
+    # DOC-01 설명 줄에서 떨어진 줄. 변환 스크립트가 오류 없이 버린다(누락)
     for b in blocks:
         for ln, s in b["after"]:
             if STRANDED.match(s):
@@ -306,7 +330,7 @@ def check(lines, blocks, idx, mark, source):
                 "앞말 받침 유무에 맞는 조사 하나만 남김(받침 있음: 이/은/을/과, 없음: 가/는/를/와)",
                 i + 1, around(line, m.start(), m.end()), i + 1)
 
-    # DOC-03 표 안에 세로줄이 새어 칸 수가 어긋났다
+    # DOC-03 표 칸 안에 세로줄이 들어가 칸 수가 머리글과 어긋났다
     #      표마다 그 표의 머리글과 맞대 본다. 블록 안 둘째 표는 DOC-11 이 따로 잡는다.
     #      칸은 변환 스크립트처럼 나눈다(di.split_row). 양끝 세로줄은 하나씩만 떼므로 빈 끝 칸(||)도 칸이다.
     for b in blocks:
@@ -323,7 +347,7 @@ def check(lines, blocks, idx, mark, source):
     #      2개 이상이면 반입이 막힌다. 둘 다 문서가 만들어진 뒤에 드러난다.
     #      2건 이상이면 표시한 속성 이름을, 0건이면 머리글을 발췌한다.
     #      변환 스크립트처럼 첫 표만 보고 머리글 별칭과 참 값을 가린다(색인의 title_rows). 규격 검사기의
-    #      GOS61006·61007 과 같은 결함으로 합치므로(검사-규칙.md 4절) 두 쪽이 같게 세어야 한다.
+    #      GOS61006·61007 과 같은 결함으로 합치므로(rule-catalog.md 4절) 두 쪽이 같게 세어야 한다.
     for b in blocks:
         c = idx.element_at(b["line"])
         marked = idx.title_rows(c) if c is not None and c.kind == "개념" else None
@@ -341,10 +365,10 @@ def check(lines, blocks, idx, mark, source):
 
     # DOC-05 설명이 아예 없는 개념, 또는 설명 줄은 있으나 변환 스크립트가 설명을 읽지 않는 개념
     #      변환 스크립트는 제목 아래부터 첫 표·제목 줄(#) 앞까지만, 머리가 '설명'·'description' 인 줄만
-    #      설명으로 읽는다(색인의 desc). 표나 소제목 뒤의 설명 줄과 '- desc:' 줄은 오류 없이 버려져
+    #      설명으로 읽는다(색인의 desc). 표나 소제목 뒤의 설명 줄과 '- desc:' 줄은 오류 없이 정의 파일에 옮기지 않아
     #      변환된 개념에 설명이 없다. 이때는 이 검사기가 설명으로 본 줄(여럿이면 마지막 줄)로 짚는다.
     #      다만 DOC-11 소제목 뒤 표가 있는 블록에서 그 소제목을 지우면 설명도 읽히면 DOC-11 행만 낸다
-    #      (검사-규칙.md 4절). 한 결함(소제목)을 두 건으로 세지 않기 위해서다.
+    #      (rule-catalog.md 4절). 한 결함(소제목)을 두 건으로 세지 않기 위해서다.
     unread = idx.unread_tables()
     headed = {id(el) for _, case, el in unread if case == "소제목 뒤 표" and el is not None}
     for b in blocks:
@@ -402,32 +426,82 @@ def check(lines, blocks, idx, mark, source):
                 "경고문에 상대 개념 이름 포함 여부 확인", b["line"], sentence(d, base, base),
                 b["desc_line"])
 
-    # DOC-09 대상 환경에 아직 없는 데이터 구조를 짚는다
-    #    문서 타입과 전처리 산출물은 여기 나오는 것이 정상이다. 오류가 아니라
-    #    다음 단계의 일거리이므로, 리포트에 누가 하는지 적혔는지 확인하라고만 알린다.
+    # DOC-09·15 대상 환경에 아직 없는 데이터 구조를 짚는다
+    #    문서 타입과 채택한 매핑 테이블(MT 번호)만 정상이다. 오류가 아니라
+    #    다음 단계의 일거리이므로, 리포트에 누가 하는지 적혔는지 확인하라고만 알린다(DOC-09).
+    #    MT 번호도 종류 DOC_TYPE 도 없으면 새 데이터가 있어야 채워지는 구조라 Error 다(DOC-15).
     metas = meta_types(lines)
     absent_names = []
-    for name, ln, desc, desc_ln in metas:
+    for name, ln, desc, desc_ln, kind in metas:
         m = ABSENT.search(desc)
-        if m:
-            absent_names.append(name)
+        if not m:
+            continue
+        absent_names.append(name)       # 두 경우 모두 넣어 DOC-08 과 겹치지 않게 한다
+        if MT_MARK.search(desc) or kind.upper() == "DOC_TYPE":
             add("DOC-09", "확인", "%d줄(%s)" % (ln, name),
                 "대상 환경에 미생성된 데이터 구조. 반입 전 생성 필요",
-                "설계 리포트 7.1절(신규 메타타입)에 사용 개념·생성 방법·조치 주체 기재 여부 확인. "
+                "설계 리포트 7.1절(매핑 테이블 제안)·7.2절(문서 타입)에 사용 개념·재료·생성 방법·조치 주체 기재 여부 확인. "
                 "규격 검사는 GOS61014로 지적하나 조치 주체는 알려 주지 않음",
+                ln, around(desc, m.start(), m.end()), desc_ln)
+        else:
+            add("DOC-15", "오류", "%d줄(%s)" % (ln, name),
+                "대상 환경에 아직 없다는 표지가 있으나 MT 번호도 문서 타입 종류도 없는 데이터 구조",
+                "기존 데이터로 만들 수 있으면 설계 리포트 7.1절에 매핑 테이블로 올리고 설명에 MT 번호를 적음. "
+                "아니면 구조와 그 구조만 쓰던 요소를 지움",
                 ln, around(desc, m.start(), m.end()), desc_ln)
 
     # DOC-08 원천 문서를 받았으면 데이터 구조 이름이 거기 있는지 대조한다
     #    원천에 없는 이름 자체는 잘못이 아니다 — 문서 타입은 여기서 처음 정해진다.
     #    다만 아무 설명 없이 원천에 없는 이름이 있으면 짚어 준다.
     if source is not None:
-        for name, ln, desc, desc_ln in metas:
+        for name, ln, desc, desc_ln, kind in metas:
             if name not in source and name not in absent_names:
                 add("DOC-08", "경고", "%d줄(%s)" % (ln, name),
                     "원천 문서에 없는 이름이며 출처 기재 없음",
-                    "문서 타입·전처리로 새로 생기는 구조이면 설명에 기재. "
-                    "원천 이름을 잘못 옮긴 경우 원천 이름으로 정정",
+                    "채택한 매핑 테이블이면 설명에 MT 번호와 대상 환경에 아직 없다는 표기를 넣고, 문서 타입이면 종류 DOC_TYPE을 밝힘. "
+                    "그 밖의 새 구조는 지우고, 원천 이름을 잘못 옮겼으면 원천 이름으로 고침",
                     ln, clip(lines[ln - 1]), ln)
+
+    # DOC-12·13·14 매핑이 없어 반입 뒤 비는 개념·속성·관계를 짚는다. 정의 문서 색인(definition_index)의 함수를 그대로 쓴다
+    #    DOC-12 는 매핑 블록이 없는 개념이다. 블록이 있어도 변환 스크립트가 옮길 매핑 행이 없으면 같다(unmapped_concepts).
+    #    규격 검사기 GOS61017 과 같은 결함이라 위치를 개념 제목 줄로 적어, 수집 스크립트가 같은 위치의 SPC-03 행을
+    #    이 행에 합치게 한다(rule-catalog.md 4절).
+    #    DOC-13 은 매핑 블록은 있으나 어느 매핑 행에도 이어지지 않은 속성이다. 그 개념이 양끝인 관계의
+    #    조인 속성은 DOC-14 가 보므로 뺀다. 조인 속성은 양끝 칸과 조인 속성 칸이 모두 찬 관계 행에서 모으고,
+    #    방향을 읽지 못하는 등 변환 스크립트가 옮기지 않는 관계 행도 넣는다.
+    #    DOC-14 는 조인 속성 둘 가운데 하나라도 매핑 행이 없는 관계다. DOC-12 인 끝의 조인 속성은 DOC-12 가
+    #    짚으므로 세지 않는다. 양끝이 DOC-12 면 내지 않는다.
+    #    DOC-14 는 변환 스크립트가 옮기는 관계만 본다. 칸이 비거나 방향을 읽지 못하는 관계는 변환 오류로 나온다.
+    unmapped = idx.unmapped_concepts()
+    unmapped_names = {c.name for c in unmapped}
+    for c in unmapped:
+        add("DOC-12", "오류", "%d줄(%s)" % (c.line, c.name),
+            "매핑 블록이 없는 개념임. 반입 뒤 개체가 0건이라 질의에 답하지 못하고 대상 환경 적용에서 막힘",
+            "원천에서 그 개념의 테이블·문서 종류를 찾아 매핑을 더함. 없으면 개념과 그 개념만 쓰던 관계를 지우고 "
+            "그 개념을 쓰는 CQ를 검증 리포트 5.2절에 올림",
+            c.line, clip(lines[c.line - 1]), c.line)
+    links = idx.converted("linkTypes")
+    joined = [r for r in idx.relations if all((r.source, r.source_prop, r.target, r.target_prop))]
+    joins = {(r.source, r.source_prop) for r in joined} | {(r.target, r.target_prop) for r in joined}
+    for c in idx.concepts:
+        if c.name in unmapped_names:
+            continue
+        for p in c.converted_children():
+            if (c.name, p.name) in joins or idx.find_mapping_rows(c.name, None, p.name):
+                continue
+            add("DOC-13", "오류", "%d줄(%s)" % (p.line, p.name),
+                "어느 매핑 행에도 이어지지 않은 속성임. 반입 뒤 늘 빈 값을 냄",
+                "뜻이 같은 원천 컬럼을 찾아 매핑을 더함. 없으면 속성을 지우고 그 값을 쓰는 CQ를 검증 리포트 5.2절에 올림",
+                p.line, clip(lines[p.line - 1]), p.line)
+    for r in links:
+        missing = [prop for concept, prop in ((r.source, r.source_prop), (r.target, r.target_prop))
+                   if concept not in unmapped_names and not idx.find_mapping_rows(concept, None, prop)]
+        if missing:
+            add("DOC-14", "오류", "%d줄(%s)" % (r.line, r.name),
+                "조인 속성에 매핑 행이 없는 관계임. 반입은 되지만 늘 빈 관계임",
+                "원천의 연결 키 컬럼에 조인 속성을 매핑함. 연결 키가 없으면 관계를 지우고 그 경로를 쓰는 CQ를 "
+                "검증 리포트 5.2절에 올림",
+                r.line, clip(lines[r.line - 1]), r.line)
 
     # DOC-11 변환되지 않는 표 — 변환 스크립트는 블록마다 첫 표만 읽고(Link Type 은 첫 절의 첫 표만)
     #      첫 표 앞에서 제목 줄(#)을 만나면 그 블록의 표를 하나도 읽지 않는다.
@@ -446,13 +520,30 @@ def check(lines, blocks, idx, mark, source):
     return findings
 
 
-def unreadable(args, doc, path, problem, detail=""):
-    """문서를 읽지 못해 멈춘다. --json 이면 수집 스크립트가 알아볼 꼴로 낸다."""
-    if args.json:
-        json.dump({"읽힘": False, "까닭": "%s를 읽지 못함: %s (%s)" % (doc, path, problem),
-                   "문서": doc, "경로": path, "문제": problem},
-                  sys.stdout, ensure_ascii=False)
+def write_json(body):
+    """--json 결과를 표준 출력에 하나 쓴다. 읽는 쪽이 먼저 닫힌 파이프 같은 쓰기 실패면 표준 오류 한 줄을 내고 False.
+    표준 출력을 os.devnull 로 돌려 해석기가 끝날 때 버퍼를 다시 비우다 실패하지 않게 한다."""
+    try:
+        json.dump(body, sys.stdout, ensure_ascii=False)
         print()
+        sys.stdout.flush()
+    except OSError as err:      # 읽는 쪽이 먼저 닫힌 파이프 → 종료 코드 4
+        print("정의 문서 검사 결과를 내지 못함: %s" % (err.strerror or err), file=sys.stderr)
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return False
+    return True
+
+
+def unreadable(args, doc, path, problem, detail=""):
+    """문서를 읽지 못해 멈춘다. --json 이면 수집 스크립트가 알아볼 꼴로 낸다.
+    기존 다섯 칸(읽힘·까닭·문서·경로·문제)은 수집 스크립트가 읽으므로 그대로 두고, 멈춤 목록의 세 칸
+    (code·message_ko·model_hint)을 더한다. model_hint 는 읽지 못한 문서 이름을 넣어 그 문서를 고치라고 안내한다."""
+    if args.json:
+        why = "%s를 읽지 못함: %s (%s)" % (doc, path, problem)
+        if not write_json({"읽힘": False, "까닭": why, "문서": doc, "경로": path, "문제": problem,
+                           "code": "DOC_INPUT", "message_ko": why,
+                           "model_hint": "%s 경로나 인코딩을 고친 뒤 다시 수행" % doc}):
+            return EXIT_ENV
     else:
         print("%s를 읽지 못했다: %s (%s)" % (doc, path, problem + (": " + detail if detail else "")),
               file=sys.stderr)
@@ -463,7 +554,7 @@ def unreadable(args, doc, path, problem, detail=""):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="온톨로지 정의 문서에서 조용히 사라지는 것을 찾는다.")
+    ap = argparse.ArgumentParser(description="온톨로지 정의 문서에서 변환 스크립트가 오류 없이 빠뜨리거나 잘못 옮기는 줄을 찾는다.")
     ap.add_argument("path")
     ap.add_argument("--warn-mark", default="⚠", help="가이드가 정한 경고 기호 (기본 ⚠)")
     ap.add_argument("--source", nargs="*", default=[],
@@ -474,6 +565,8 @@ def main():
     ap.add_argument("--json", action="store_true",
                     help="검사 결과와 통계를 JSON 으로 낸다. 수집 스크립트가 읽는다")
     args = ap.parse_args()
+    global JSON_OUT
+    JSON_OUT = args.json
 
     try:
         text = di.read_text(args.path)
@@ -483,11 +576,12 @@ def main():
     blocks = read_blocks(lines)
 
     if not blocks:
-        if args.json:
-            json.dump({"읽힘": False, "까닭": "Object Type 절에서 개념을 찾지 못함",
-                       "문서": "정의 문서", "경로": args.path, "문제": "개념 없음"},
-                      sys.stdout, ensure_ascii=False)
-            print()
+        if args.json:  # 기존 다섯 칸은 그대로 두고 읽기 실패 JSON 과 같은 멈춤 목록의 세 칸을 더한다
+            why = "Object Type 절에서 개념을 찾지 못함"
+            if not write_json({"읽힘": False, "까닭": why, "문서": "정의 문서", "경로": args.path, "문제": "개념 없음",
+                               "code": "DOC_INPUT", "message_ko": why,
+                               "model_hint": "정의 문서에 개념 블록이 있는지 확인한 뒤 다시 수행"}):
+                return EXIT_ENV
         else:
             print("Object Type 절에서 개념을 찾지 못했다. 절 제목을 확인한다.")
         return 2
@@ -515,9 +609,13 @@ def main():
     warns = [f for f in findings if f["등급"] == "경고"]
     notes = [f for f in findings if f["등급"] == "확인"]
 
-    if args.json:
-        json.dump({"읽힘": True, "통계": st, "걸린 것": findings}, sys.stdout, ensure_ascii=False)
-        print()
+    if args.json:  # 기존 세 칸(읽힘·통계·걸린 것)은 그대로 두고 멈춤 목록의 세 칸을 더한다
+        if not write_json({"읽힘": True, "통계": st, "걸린 것": findings,
+                           "code": "DOC_ERRORS" if errors else None,
+                           "message_ko": "정의 문서 검사에서 Error %d건" % len(errors) if errors
+                           else "정의 문서 검사에서 Error 없음",
+                           "model_hint": "⑨ 걸음 3에서 Error를 고친 뒤 다시 검사" if errors else None}):
+            return EXIT_ENV
         return 1 if errors else 0
 
     print("검사 대상: %s   (경고 기호 %s)\n" % (args.path, args.warn_mark))
@@ -535,7 +633,7 @@ def main():
         print()
 
     if not findings:
-        print("조용히 사라지는 자리를 찾지 못했다.")
+        print("변환 때 누락되거나 다른 칸으로 옮겨지는 결함을 찾지 못했다.")
         print("내용이 맞는지는 사람이 본다 — 질문이 쓰지 않는 개념, 근거 없이 채운 값 같은 것이다.")
         return 0
 
@@ -545,4 +643,12 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as e:      # 처리하지 못한 예외가 종료 코드 1(Error 있음)로 읽히지 않게 3 으로 끝낸다
+        why = "검사하지 않음: 정의 문서 검사기가 예상하지 못한 오류로 멈춤(%s: %s)" % (type(e).__name__, e)
+        print(why, file=sys.stderr)
+        if JSON_OUT:    # 인자 해석이 끝난 뒤의 오류만. 옵션 오류는 argparse 가 2로 끝내고, 인자 해석 전의 예외는 JSON 없이 3
+            write_json({"읽힘": False, "code": "SKILL_UNEXPECTED", "message_ko": why,
+                        "model_hint": "입력이나 옵션으로 풀리지 않는다. 스크립트를 고치지 말고 사용자에게 알린다"})
+        sys.exit(3)
