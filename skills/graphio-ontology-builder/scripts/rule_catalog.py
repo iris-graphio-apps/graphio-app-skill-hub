@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""검사 규칙 목록 문서(references/검사-규칙.md)를 읽고 확인한다.
+"""검사 규칙 목록 문서(references/rule-catalog.md)를 읽고 확인한다.
 
 수집 스크립트와 판정 스크립트가 함께 쓴다. 2절 규칙 목록 표와 3절 규칙 설명 표만 읽는다.
 두 절에는 표가 하나씩 있고, 머리글은 LIST_HEAD·DESC_HEAD 와 같아야 하며 칸 안에 세로줄이 없다.
-문서 첫머리가 정한 확인 다섯 가지 가운데 하나라도 어긋나면 RuleError 를 낸다.
+문서 첫머리가 정한 확인 여섯 가지 가운데 하나라도 어긋나면 RuleError 를 낸다.
 
     import rule_catalog as rc      # 스크립트 폴더가 sys.path[0] 이라 그대로 읽힌다
-    rules = rc.load()              # 스크립트 폴더 기준 ../references/검사-규칙.md
+    rules = rc.load()              # 스크립트 폴더 기준 ../references/rule-catalog.md
     rules.get("DOC-04")["등급"]    # 두 표의 칸을 합친 dict
     rules.order("SPC-01")          # 2절 표 차례(0부터). '규칙 번호 차례'는 이 차례다
     rules.skill_rules()            # 스킬이 검증 리포트 4.2절에 적는 규칙
     rc.COLLECTED, rc.JUDGED        # 수집 스크립트가 내는 규칙, 판정 스크립트가 5·6절과 2절에서 정하는 규칙
+    rc.SKILL_VERSION               # 스킬 판본. 판정 문서 문서 정보 표와 앞 판정 대조가 쓴다
+    rc.version_key("0.3.0")        # 판본을 맞대 볼 수 있는 (0, 3, 0)
 
 스크립트 규칙을 가르는 기준은 이 파일의 COLLECTED·JUDGED 하나다. 두 스크립트는 접두어로 가르지 않는다.
 """
@@ -20,9 +22,14 @@ import re
 from definition_index import split_row
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_PATH = os.path.normpath(os.path.join(HERE, "..", "references", "검사-규칙.md"))
+DEFAULT_PATH = os.path.normpath(os.path.join(HERE, "..", "references", "rule-catalog.md"))
 
-LIST_HEAD = ("규칙", "이름", "등급", "탐지 방식", "외부 코드", "상태")
+# 스킬 판본. 설치된 스킬은 저장소의 registry.json 을 읽지 못하므로 스킬 폴더 안 이 한 곳에 둔다.
+# registry.json 의 version 과 같아야 한다(작업 폴더 precommit_check.py 가 맞대 본다).
+SKILL_VERSION = "0.4.0"
+VERSION_RE = re.compile(r"\d+\.\d+\.\d+")
+
+LIST_HEAD = ("규칙", "이름", "등급", "탐지 방식", "외부 코드", "상태", "바뀐 판본")
 DESC_HEAD = ("규칙", "설명", "발생 경로 표기", "조치 지침", "기본 조치 주체", "기본 참고 자료")
 GRADES = ("Error", "Warning", "Info")
 STATES = ("사용", "사용하지 않음")
@@ -30,11 +37,18 @@ STATES = ("사용", "사용하지 않음")
 # 나머지 '사용' 규칙은 스킬이 검증 리포트 4.2절에 적는다(skill_rules).
 # COLLECTED 는 수집 스크립트가 4.2절 스크립트 행으로 내는 규칙, JUDGED 는 판정 스크립트가 5·6절과
 # 2절에서 정하는 규칙이다. 4.2절에 JUDGED 규칙이 있으면 판정 스크립트가 멈춘다.
-COLLECTED = (tuple("DOC-%02d" % n for n in range(1, 12)) + ("CNV-01",)
+COLLECTED = (tuple("DOC-%02d" % n for n in range(1, 16)) + ("CNV-01",)
              + tuple("SPC-%02d" % n for n in range(1, 4)))
-JUDGED = ("CQS-01", "CQS-02", "CQS-03", "CQS-04", "CQS-06") + tuple("MAP-%02d" % n for n in range(1, 5))
+JUDGED = ("CQS-01", "CQS-02", "CQS-03", "CQS-04", "CQS-06", "CQS-07", "CQS-08", "MAP-01")
 SCRIPT_RULES = COLLECTED + JUDGED
 RULE_RE = re.compile(r"[A-Z]{3}-\d{2}")
+
+
+def version_key(text):
+    """판본 '0.3.0' 을 맞대 볼 수 있는 (0, 3, 0) 으로. 꼴이 아니면 ValueError."""
+    if not VERSION_RE.fullmatch(text or ""):
+        raise ValueError("판본 꼴이 아님: %r" % (text,))
+    return tuple(int(n) for n in text.split("."))
 
 
 class RuleError(Exception):
@@ -130,6 +144,13 @@ def load(path=DEFAULT_PATH):
         if row["상태"] not in STATES:
             raise RuleError("%s 상태 값이 %s 가운데 하나가 아님: '%s'(%d줄)"
                             % (rule, "·".join(STATES), row["상태"], ln))
+        # 바뀐 판본은 앞 판정 대조가 '기준 변경' 을 가를 때 쓴다. 스킬 판본보다 뒤이면 가를 수 없다
+        if not VERSION_RE.fullmatch(row["바뀐 판본"]):
+            raise RuleError("%s 바뀐 판본 값이 판본 꼴(%s)이 아님: '%s'(%d줄)"
+                            % (rule, SKILL_VERSION, row["바뀐 판본"], ln))
+        if version_key(row["바뀐 판본"]) > version_key(SKILL_VERSION):
+            raise RuleError("%s 바뀐 판본이 스킬 판본(%s)보다 뒤임: '%s'(%d줄)"
+                            % (rule, SKILL_VERSION, row["바뀐 판본"], ln))
     state = {row["규칙"]: row["상태"] for _, row in listed}
     missing = [r for r in SCRIPT_RULES if state.get(r) != "사용"]
     if missing:

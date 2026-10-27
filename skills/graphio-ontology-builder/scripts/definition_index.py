@@ -18,6 +18,7 @@
     idx.resolve("objectTypes[2].properties[3].dataType")   # 경로가 가리키는 요소 목록
     di.location("개념", name="이름", line=12)               # "개념 '이름'(정의 문서 12줄)"
     di.parse_location("개념 '이름'(정의 문서 12줄)")        # ("개념", {"name": "이름", "line": 12})
+    di.element_key("개념 '이름'(정의 문서 12줄)")           # ("개념", (("name", "이름"),))
 
 위치 꼴은 검증 리포트와 판정 문서의 위치 표기 규칙을 옮긴 것이다. 꼴은 FORMS 한 곳에 둔다.
 """
@@ -118,7 +119,7 @@ class LocationError(ValueError):
 def read_text(path):
     """문서를 UTF-8 텍스트로 읽는다. 다른 인코딩을 짐작해 읽지 않는다.
 
-    짐작이 틀리면 조용히 잘못 읽기 때문이다. 읽지 못하면 ReadError 를 낸다.
+    틀린 짐작으로 읽으면 오류 없이 다른 요소를 가리키기 때문이다. 읽지 못하면 ReadError 를 낸다.
     """
     try:
         with open(path, encoding="utf-8") as f:
@@ -238,6 +239,18 @@ def parse_location(text):
                 values["line"] = int(values["line"]) if "line" in values else None
             return head, values
     raise LocationError("위치 머리말 목록 밖: %s" % s)
+
+
+def element_key(text):
+    """위치 문자열 하나가 가리키는 요소의 열쇠 (머리말, 줄 번호를 뺀 값 묶음).
+
+    판정 스크립트가 앞 판정과 이번 판정의 지적을 맞댈 때 쓴다. 줄 번호는 문서를 고치면 밀리므로 뺀다.
+    값 묶음은 (칸 이름, 값) 짝을 칸 이름 차례로 둔 것이다. '정의 문서 n줄' 은 ("정의 문서", ()) 이고,
+    관계(없음)은 출발·도착과 조인 속성이 묶음에 든다. 풀 수 없으면 parse_location() 처럼 LocationError.
+    location() 은 줄 번호를 꼭 받으므로 이 열쇠에서 위치 문자열을 다시 만들지 않는다.
+    """
+    head, values = parse_location(text)
+    return head, tuple(sorted((k, v) for k, v in values.items() if k != "line"))
 
 
 # ── 표 읽기 (변환 스크립트와 같은 규칙) ─────────────────────────────────────────

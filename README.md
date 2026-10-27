@@ -22,7 +22,7 @@ langgraph 기반 **graphio-app-framework** 개발에 필요한 Claude 스킬을 
 | graphio-subagent-dev | graphio | app-framework | 재사용 service node(ServiceNode 계약) 저작·등록 |
 | graphio-app-test | graphio | app-framework | graphio app 로컬 테스트 (Test UI / curl) |
 | **korean-writing** | korean | writing | 한국어 문서를 새로 쓸 때 번역투를 걷어내는 규칙 (교정은 파일 지정 호출) |
-| graphio-ontology-builder | graphio | ontology | 업무 문서(검증질문·참고 문서·두 가이드)를 읽어 온톨로지를 설계하고 정의 서식(.md)으로 정리 |
+| graphio-ontology-builder | graphio | ontology | 업무 문서(검증질문·참고 문서·두 가이드)를 읽어 원천에 근거가 있는 것만으로 온톨로지를 설계하고 정의 서식(.md)으로 정리. 판정과 수정 요청서에 모은 항목으로 설계를 고쳐 다시 냄(--fix). 사람이 정비만 한 정의 문서는 검증·판정만 다시 수행하고 설계를 바꾼 수정은 받지 않음(--verify) |
 | graphio-ontology-converter | graphio | ontology | 온톨로지 정의 서식(.md)을 graphio 온톨로지 JSON 으로 옮기고 규격을 검증 |
 
 ## 스킬 사용하기 (설치)
