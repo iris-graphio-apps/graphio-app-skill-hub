@@ -128,31 +128,6 @@ def load_lines(path):
     return out
 
 
-def sentences(lines):
-    """줄바꿈으로 감긴 문장을 문단 단위로 이어 붙인 뒤 문장으로 나눈다."""
-    buf, start = [], None
-    for no, text in lines:
-        t = text.strip()
-        is_break = not t or t.startswith(("#", "|", ">")) or re.match(r"^[-*+]\s|^\d+[.)]\s", t)
-        if is_break:
-            if buf:
-                yield from _split(start, " ".join(buf))
-                buf, start = [], None
-            continue
-        if start is None:
-            start = no
-        buf.append(t)
-    if buf:
-        yield from _split(start, " ".join(buf))
-
-
-def _split(no, para):
-    for s in re.split(r"(?<=[.!?])\s+", para):
-        s = s.strip()
-        if s:
-            yield no, s
-
-
 def report(title, hits, limit=12):
     if not hits:
         return 0
@@ -220,8 +195,7 @@ def check(path, pairs):
                     + f"가 섞임   → '{top[0]}'으로 통일")
     total += report("문체 혼용", hits)
 
-
-    # ⑥ 번역투 군더더기
+    # ⑤ 번역투 군더더기
     hits, seen = [], Counter()
     for no, text in lines:
         for pat, fix in TRANSLATIONESE:
@@ -232,7 +206,7 @@ def check(path, pairs):
                     hits.append(f"{no:>4}줄  {m.group(0).strip()}  → {fix}")
     total += report("번역투 군더더기", hits, limit=18)
 
-    # ⑦ 숫자·단위·날짜
+    # ⑥ 숫자·단위·날짜
     hits = []
     used_pct = [(name, len(re.findall(p, body))) for p, name in PCT_FORMS]
     used_pct = [(n, c) for n, c in used_pct if c]
@@ -251,7 +225,7 @@ def check(path, pairs):
             hits.append(f"{no:>4}줄  '{m.group(0)}' → '약'과 '정도' 중 하나만")
     total += report("숫자·단위·날짜 표기", hits, limit=15)
 
-    # ⑧ 제목 안 같은 말 반복
+    # ⑦ 제목 안 같은 말 반복
     hits = []
     for no, text in lines:
         t = text.strip()
