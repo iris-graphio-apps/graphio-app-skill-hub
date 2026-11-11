@@ -54,6 +54,12 @@ KONGLISH = {
     "인벤토리": "목록", "베네핏": "이점", "리스크": "위험", "임팩트": "영향",
 }
 
+# 음차를 피하려고 끼워 넣은 고유어 가운데 사전 뜻이 낮잡거나 여러 뜻으로 읽히는 말.
+# 정규식 → 쓰려던 뜻에 맞는 말
+MISFIT = {
+    r"꼴(?!찌|뚜기)": "뜻에 따라 패턴·형식·유형·형태",
+}
+
 # ── 3. 번역투 군더더기 ──────────────────────────────────────────────────
 TRANSLATIONESE = [
     (r"을 통하여|를 통하여|을 통해|를 통해", "조사로 (~로, ~에서)"),
@@ -158,7 +164,7 @@ def report(title, hits, limit=12):
     return len(hits)
 
 
-def check(path, pairs, max_len):
+def check(path, pairs):
     print("=" * 66)
     print(f"점검 대상: {path}")
     print("=" * 66)
@@ -187,6 +193,10 @@ def check(path, pairs, max_len):
             for no, t in lines if k in t][:40]
     total += report("음차한 업무·기술 용어 — 한국어 뜻으로 (분야에서 굳어진 말이면 유지)", hits)
 
+    hits = [f"{no:>4}줄  {m.group(0)} → {v}" for k, v in MISFIT.items()
+            for no, t in lines for m in re.finditer(k, t)][:40]
+    total += report("뜻이 맞지 않는 고유어 — 사전 뜻을 확인하고 쓰려던 뜻에 맞는 한자어·외래어로", hits)
+
     # ③ 용어 혼용
     hits = []
     for a, b in pairs:
@@ -210,10 +220,6 @@ def check(path, pairs, max_len):
                     + f"가 섞임   → '{top[0]}'으로 통일")
     total += report("문체 혼용", hits)
 
-    # ⑤ 긴 문장
-    hits = [f"{no:>4}줄부터  {len(s)}자  {s[:38]}…"
-            for no, s in sentences(lines) if len(s) > max_len]
-    total += report(f"{max_len}자를 넘는 문장 — 서술어를 기준으로 자른다", hits)
 
     # ⑥ 번역투 군더더기
     hits, seen = [], Counter()
@@ -269,14 +275,13 @@ def main():
     ap.add_argument("files", nargs="+")
     ap.add_argument("--pair", nargs=2, action="append", metavar=("A", "B"),
                     help="같은 뜻으로 섞어 쓴 낱말 쌍. 문서마다 바꿔 넣는다")
-    ap.add_argument("--max-len", type=int, default=100, help="긴 문장 기준 글자 수")
     args = ap.parse_args()
 
     pairs = [tuple(p) for p in (args.pair or [])] or [
         ("툴", "도구"), ("평가셋", "평가 세트"), ("핸드오프|handoff", "이관"),
         ("유저", "사용자"), ("에러", "오류"), ("리퀘스트", "요청"),
     ]
-    total = sum(check(f, pairs, args.max_len) for f in args.files)
+    total = sum(check(f, pairs) for f in args.files)
     sys.exit(0 if total == 0 else 1)
 
 
